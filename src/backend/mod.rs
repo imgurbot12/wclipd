@@ -37,7 +37,7 @@ impl Display for Storage {
 }
 
 /// Clipboard Record Object
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Record {
     pub entry: Entry,
     pub last_used: SystemTime,
@@ -77,25 +77,25 @@ impl BackendOpts {
 /// Storage Backend Abstraction Trait
 pub trait Backend: Send + Sync {
     fn add(&mut self, entry: Record) -> usize;
-    fn get(&self, index: usize) -> Option<&Record>;
-    fn latest(&self) -> Option<&Record>;
-    fn exists(&self, entry: &Entry) -> Option<usize>;
+    fn get(&mut self, index: usize) -> Option<&Record>;
+    fn latest(&mut self) -> Option<&Record>;
+    fn exists(&mut self, entry: &Entry) -> Option<usize>;
     fn update(&mut self, index: &usize);
     fn delete(&mut self, index: usize);
     fn clear(&mut self);
-    fn list(&self) -> Vec<Preview>;
+    fn list(&mut self) -> Vec<Preview>;
 }
 
 impl dyn Backend {
     /// Find Entry with Index (if Specified)
-    pub fn find(&self, index: Option<usize>) -> Option<&Record> {
+    pub fn find(&mut self, index: Option<usize>) -> Option<&Record> {
         match index {
             Some(idx) => self.get(idx),
             None => self.latest(),
         }
     }
     /// Organize List of Previews before Showing
-    pub fn preview(&self) -> Vec<Preview> {
+    pub fn preview(&mut self) -> Vec<Preview> {
         let mut previews = self.list();
         previews.sort_by(|a, b| {
             let first = b.last_used.cmp(&a.last_used);

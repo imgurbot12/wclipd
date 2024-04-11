@@ -44,7 +44,7 @@ impl Daemon {
         let options = BackendOpts {
             backend: args.backend,
             max_entries: args.max_entries,
-            lifetime: None,
+            lifetime: args.lifetime,
         };
         let backend = options.build();
         Ok(Self {

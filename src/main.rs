@@ -1,5 +1,6 @@
 use std::io::{stdin, stdout, Read, Write};
 use std::path::PathBuf;
+use std::time::Duration;
 
 use clap::{Args, Parser, Subcommand};
 use clipboard::Entry;
@@ -17,6 +18,12 @@ use crate::client::{Client, ClientError};
 use crate::daemon::{Daemon, DaemonError};
 
 static DEFAULT_SOCK: &'static str = "~/.var/run/clapd.sock";
+
+/// Parser for Duration Value in Cli
+fn parse_duration(arg: &str) -> Result<std::time::Duration, std::num::ParseIntError> {
+    let seconds = arg.parse()?;
+    Ok(std::time::Duration::from_secs(seconds))
+}
 
 /// Possible CLI Errors
 #[derive(Debug, Error)]
@@ -87,19 +94,24 @@ struct DaemonArgs {
     #[clap(short, long)]
     max_entries: Option<usize>,
     /// Max lifetime of clipboard entry
-    #[clap(short, long)]
-    lifetime: Option<String>,
+    #[clap(short, long, value_parser = parse_duration)]
+    lifetime: Option<Duration>,
 }
 
 /*
-pipe copying Cargo.toml fails, why?
-
-1. Option to Kill Existing Daemon rather than Exit if exists
+1. Option to Kill Existing Daemon rather than Exit if exists [DONE]
 2. Choose Storage Option
-3. Choose Max Clipboard Entries
-4. Choose Clipboard Entry Lifetime
+3. Choose Max Clipboard Entries [DONE]
+4. Choose Clipboard Entry Lifetime [DONE]
 5. Output Preview to Rmenu Format?
 6. Reimplement Backend Clipboard Libraries
+
+[ ] Implement Shared Configuration File for Client/Daemon
+[ ] Use XDG Standard for Setting Socket by Default
+[ ] More Robust Clipboard Entry Controls
+    - [ ] Delete OnLogin
+    - [ ] Delete OnReboot
+    - [ ] Delete After N-Seconds
 */
 
 /// Valid CLI Command Actions
