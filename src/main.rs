@@ -1,10 +1,13 @@
+use std::io::{stdin, stdout, Read, Write};
 use std::path::PathBuf;
 
 use clap::{Args, Parser, Subcommand};
+use clipboard::Entry;
 use thiserror::Error;
 
 mod backend;
 mod client;
+mod clipboard;
 mod daemon;
 mod message;
 
@@ -18,6 +21,9 @@ static DEFAULT_SOCK: &'static str = "~/.var/run/clapd.sock";
 struct CopyArgs {
     /// Text to copy
     text: Vec<String>,
+    /// Communication Socket
+    #[clap(short, long, default_value_t = String::from(DEFAULT_SOCK))]
+    socket: String,
     /// Override the inferred MIME type
     #[arg(short, long)]
     mime: Option<String>,
@@ -31,6 +37,9 @@ struct CopyArgs {
 struct PasteArgs {
     /// Clipboard Entry-Number (from Daemon)
     entry_num: Option<usize>,
+    /// Communication Socket
+    #[clap(short, long, default_value_t = String::from(DEFAULT_SOCK))]
+    socket: String,
     /// Do not append a newline character
     #[arg(short, long, default_value_t = false)]
     no_newline: bool,
@@ -41,7 +50,7 @@ struct PasteArgs {
 
 #[derive(Debug, Args)]
 struct ClientArgs {
-    #[clap(default_value_t = String::from(DEFAULT_SOCK))]
+    #[clap(short, long, default_value_t = String::from(DEFAULT_SOCK))]
     socket: String,
 }
 
@@ -49,9 +58,18 @@ struct ClientArgs {
 #[derive(Debug, Args)]
 struct DaemonArgs {
     /// Communication Socket
-    #[clap(default_value_t = String::from(DEFAULT_SOCK))]
+    #[clap(short, long, default_value_t = String::from(DEFAULT_SOCK))]
     socket: String,
 }
+
+/*
+1. Option to Kill Existing Daemon rather than Exit if exists
+2. Choose Storage Option
+3. Choose Max Clipboard Entries
+4. Choose Clipboard Entry Lifetime
+5. Output Preview to Rmenu Format?
+6. Reimplement Backend Clipboard Libraries
+*/
 
 /// Valid CLI Command Actions
 #[derive(Debug, Subcommand)]
@@ -78,6 +96,8 @@ struct Cli {
 
 #[derive(Debug, Error)]
 pub enum ClapdError {
+    #[error("Read Error")]
+    ReadError(#[from] std::io::Error),
     #[error("Client Error")]
     ClientError(#[from] ClientError),
     #[error("Daemon Error")]
@@ -98,7 +118,6 @@ examples:
     3. <preview>
     ...
   clipd copy <text...>
-  clipd select [index] (index required)
   clipd paste <index> (index not required - defaults to last index)
 */
 
@@ -112,8 +131,37 @@ fn main() -> Result<(), ClapdError> {
     // handle cli
     let cli = Cli::parse();
     match cli.command {
-        Command::Copy(_) => todo!(),
-        Command::Paste(_) => todo!(),
+        Command::Copy(args) => {
+            let path = expand(&args.socket);
+            let mut client = Client::new(path)?;
+            let entry = match args.text.is_empty() {
+                false => Entry::text(args.text.join(" "), args.mime),
+                true => {
+                    log::debug!("copying from stdin");
+                    let mut buffer = Vec::new();
+                    let n = stdin().read_to_end(&mut buffer)?;
+                    Entry::data(&buffer[..n], args.mime)
+                }
+            };
+            log::debug!("sending entry {}", entry.preview(100));
+            client.copy(entry)?;
+        }
+        Command::Paste(args) => {
+            let path = expand(&args.socket);
+            let mut client = Client::new(path)?;
+            let entry = client.find(args.entry_num)?;
+            if args.list_types {
+                for mime in entry.mime {
+                    println!("{mime}");
+                }
+                return Ok(());
+            }
+            let mut out = stdout();
+            out.write(entry.as_bytes())?;
+            if !args.no_newline {
+                out.write(&['\n' as u8])?;
+            }
+        }
         Command::Check(args) => {
             let path = expand(&args.socket);
             if let Ok(mut client) = Client::new(path) {
@@ -128,12 +176,12 @@ fn main() -> Result<(), ClapdError> {
             let mut client = Client::new(path)?;
             let list = client.list()?;
             for item in list {
-                println!("{item:?}");
+                println!("{}.\t{}", item.index, item.preview);
             }
         }
         Command::Daemon(args) => {
             let path = expand(&args.socket);
-            let mut server = Daemon::new(path).expect("daemon start failed");
+            let mut server = Daemon::new(path)?;
             server.run()?;
         }
     };

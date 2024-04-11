@@ -5,34 +5,73 @@ use serde::{Deserialize, Serialize};
 
 mod memory;
 
-use crate::message::{ClipboardEntry, ClipboardPreview};
+use crate::clipboard::{Entry, Preview};
 
 // Exports
 pub use memory::MemoryStore;
 
 /// Clipboard Record Object
 #[derive(Debug, Serialize, Deserialize)]
-pub struct ClipboardRecord {
-    pub entry: ClipboardEntry,
-    pub entry_date: SystemTime,
+pub struct Record {
+    pub entry: Entry,
+    pub last_used: SystemTime,
 }
 
-impl ClipboardRecord {
+impl Record {
     /// Create new Clipboard Record from Entry
-    pub fn new(entry: ClipboardEntry) -> Self {
+    pub fn new(entry: Entry) -> Self {
         Self {
             entry,
-            entry_date: SystemTime::now(),
+            last_used: SystemTime::now(),
         }
+    }
+    /// Update LastUsed Datetime on Record
+    pub fn update(&mut self) {
+        self.last_used = SystemTime::now();
     }
 }
 
 /// Storage Backend Abstraction Trait
 pub trait Backend: Send + Sync {
-    fn add(&mut self, entry: ClipboardRecord) -> usize;
+    fn add(&mut self, entry: Record) -> usize;
+    fn get(&self, index: usize) -> Option<&Record>;
+    fn latest(&self) -> Option<&Record>;
+    fn exists(&self, entry: &Entry) -> Option<usize>;
+    fn update(&mut self, index: &usize);
     fn delete(&mut self, index: usize);
     fn clear(&mut self);
-    fn update(&mut self, index: usize, entry: ClipboardRecord);
-    fn find(&self, index: usize) -> Option<&ClipboardRecord>;
-    fn list(&self) -> Vec<ClipboardPreview>;
+    fn list(&self) -> Vec<Preview>;
+}
+
+impl dyn Backend {
+    /// Find Entry with Index (if Specified)
+    pub fn find(&self, index: Option<usize>) -> Option<&Record> {
+        match index {
+            Some(idx) => self.get(idx),
+            None => self.latest(),
+        }
+    }
+    /// Organize List of Previews before Showing
+    pub fn preview(&self) -> Vec<Preview> {
+        let mut previews = self.list();
+        previews.sort_by(|a, b| {
+            let first = b.last_used.cmp(&a.last_used);
+            let second = b.index.cmp(&a.index);
+            first.then(second)
+        });
+        previews
+    }
+    /// Add/Update Entry in Database
+    pub fn push(&mut self, entry: Entry) -> usize {
+        match self.exists(&entry) {
+            Some(idx) => {
+                self.update(&idx);
+                idx
+            }
+            None => {
+                let record = Record::new(entry);
+                self.add(record)
+            }
+        }
+    }
 }

@@ -1,17 +1,20 @@
 ///! Clipboard Daemon Implementation
 use std::fs::remove_file;
-use std::io::{Read, Write};
+use std::io::{BufRead, BufReader, Write};
 use std::os::unix::net::{UnixListener, UnixStream};
 use std::path::PathBuf;
 use std::sync::{Arc, Barrier, RwLock};
 use std::thread;
 
 use thiserror::Error;
+use wayland_clipboard_listener::WlClipboardListenerError;
 use wayland_clipboard_listener::WlClipboardPasteStream;
 use wayland_clipboard_listener::WlListenType;
+use wl_clipboard_rs::copy::{MimeType, Options, Source};
 
-use crate::backend::{Backend, ClipboardRecord, MemoryStore};
+use crate::backend::{Backend, MemoryStore};
 use crate::client::Client;
+use crate::clipboard::Entry;
 use crate::message::*;
 
 #[derive(Debug, Error)]
@@ -22,6 +25,8 @@ pub enum DaemonError {
     SocketError(#[from] std::io::Error),
     #[error("Message Error")]
     MessageError(#[from] serde_json::Error),
+    #[error("Clipboard Error")]
+    ClipboardError(#[from] WlClipboardListenerError),
 }
 
 /// Clipboard Daemon Implementation
@@ -33,7 +38,7 @@ pub struct Daemon {
 
 impl Daemon {
     /// Spawn New Clipboard Daemon
-    pub fn new(path: PathBuf) -> Result<Self, std::io::Error> {
+    pub fn new(path: PathBuf) -> Result<Self, DaemonError> {
         Ok(Self {
             addr: path,
             backend: Arc::new(RwLock::new(MemoryStore::new())),
@@ -42,21 +47,31 @@ impl Daemon {
     }
 
     /// Process Incoming Request for Daemon
-    pub fn process_request(&mut self, message: &Request) -> Response {
-        log::debug!("incoming request: {message:?}");
+    pub fn process_request(&mut self, message: Request) -> Result<Response, DaemonError> {
         let mut backend = self.backend.write().expect("rwlock write failed");
-        match message {
+        Ok(match message {
             Request::Ping => Response::Ok,
             Request::Stop => {
                 self.stopped.wait();
                 Response::Ok
             }
+            Request::Copy { entry } => {
+                let opts = Options::new();
+                let data = entry.as_bytes();
+                let mime = match entry.mime.get(0) {
+                    Some(mime) => MimeType::Specific(mime.to_owned()),
+                    None => MimeType::Autodetect,
+                };
+                opts.copy(Source::Bytes(data.into()), mime)
+                    .expect("copy failed");
+                Response::Ok
+            }
             Request::List => {
-                let previews = backend.list();
+                let previews = backend.preview();
                 Response::Previews { previews }
             }
             Request::Find { index } => {
-                let entry = backend.find(*index);
+                let entry = backend.find(index);
                 match entry {
                     Some(entry) => Response::Entry {
                         entry: entry.entry.clone(),
@@ -69,24 +84,22 @@ impl Daemon {
             Request::Wipe(wipe) => {
                 match wipe {
                     Wipe::All => backend.clear(),
-                    Wipe::Single { index } => backend.delete(*index),
+                    Wipe::Single { index } => backend.delete(index),
                 }
                 Response::Ok
             }
-        }
+        })
     }
 
     /// Process Socket Connection
-    fn process_conn(
-        &mut self,
-        mut stream: UnixStream,
-        buffer: &mut [u8],
-    ) -> Result<(), DaemonError> {
+    fn process_conn(&mut self, mut stream: UnixStream) -> Result<(), DaemonError> {
         // read and parse request from client
-        let n = stream.read(buffer)?;
-        let request = serde_json::from_slice(&buffer[..n])?;
+        let mut buffer = String::new();
+        let mut reader = BufReader::new(&mut stream);
+        let _ = reader.read_line(&mut buffer)?;
+        let request = serde_json::from_str(&buffer)?;
         // generate, pack, and send response to client
-        let response = self.process_request(&request);
+        let response = self.process_request(request)?;
         let content = serde_json::to_vec(&response)?;
         stream.write(&content)?;
         Ok(())
@@ -109,10 +122,9 @@ impl Daemon {
         let _ = remove_file(&self.addr);
         // spawn new socket server
         let listener = UnixListener::bind(&self.addr)?;
-        let mut buffer = [0; 4196];
         for stream in listener.incoming() {
             let result = match stream {
-                Ok(stream) => self.process_conn(stream, &mut buffer),
+                Ok(stream) => self.process_conn(stream),
                 Err(err) => {
                     log::error!("connection error: {err:?}");
                     continue;
@@ -136,11 +148,10 @@ impl Daemon {
                 .get(0)
                 .cloned()
                 .unwrap_or_else(|| "N/A".to_owned());
-            let entry = ClipboardEntry::from(msg);
+            let entry = Entry::from(msg);
             if !entry.is_empty() {
-                let record = ClipboardRecord::new(entry);
                 let mut backend = self.backend.write().expect("rwlock write failed");
-                let index = backend.add(record);
+                let index = backend.push(entry);
                 log::info!("new clipboard entry (index={index:?}) {mime:?}");
             }
         }
@@ -152,7 +163,7 @@ impl Daemon {
         thread::spawn(move || wdaemon.watch_clipboard());
         let mut sdaemon = self.clone();
         thread::spawn(move || sdaemon.server());
-        log::debug!("threads initialized. waiting");
+        log::info!("daemon running");
         self.stopped.wait();
         log::info!("daemon stopped");
         Ok(())

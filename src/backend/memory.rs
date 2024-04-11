@@ -1,13 +1,13 @@
 //! Memory Storage Backend for Clipboard Daemon
 use std::collections::HashMap;
 
-use crate::message::ClipboardPreview;
+use crate::clipboard::{Entry, Preview};
 
-use super::{Backend, ClipboardRecord};
+use super::{Backend, Record};
 
 /// Memory Storage Backend for Clipboard Daemon
 pub struct MemoryStore {
-    store: HashMap<usize, ClipboardRecord>,
+    store: HashMap<usize, Record>,
     last_index: usize,
 }
 
@@ -23,7 +23,7 @@ impl MemoryStore {
 
 impl Backend for MemoryStore {
     /// Add new Clipboard Entry
-    fn add(&mut self, entry: ClipboardRecord) -> usize {
+    fn add(&mut self, entry: Record) -> usize {
         self.last_index += 1;
         self.store.insert(self.last_index, entry);
         self.last_index
@@ -36,21 +36,37 @@ impl Backend for MemoryStore {
     fn clear(&mut self) {
         self.store.clear();
     }
-    /// Update an Existing Clipboard Entry
-    fn update(&mut self, index: usize, entry: ClipboardRecord) {
-        self.store.insert(index, entry);
-    }
-    /// Find an Existing Clipboard Entry
-    fn find(&self, index: usize) -> Option<&ClipboardRecord> {
-        self.store.get(&index)
-    }
-    /// List Clipboard Entries with Page/Limit
-    fn list(&self) -> Vec<ClipboardPreview> {
+    /// Check if Specified Clipboard Entry Already Exists
+    fn exists(&self, entry: &Entry) -> Option<usize> {
         self.store
             .iter()
-            .map(|(i, e)| ClipboardPreview {
+            .find(|(_, r)| r.entry.body == entry.body)
+            .map(|(i, _)| *i)
+    }
+    /// Update an Existing Clipboard Entry
+    fn update(&mut self, index: &usize) {
+        if let Some(record) = self.store.get_mut(index) {
+            record.update();
+        };
+    }
+    /// Find an Existing Clipboard Entry by Index
+    fn get(&self, index: usize) -> Option<&Record> {
+        self.store.get(&index)
+    }
+    // Find Latest Entry from within Store
+    fn latest(&self) -> Option<&Record> {
+        let mut records: Vec<_> = self.store.values().collect();
+        records.sort_by_key(|r| r.last_used);
+        records.last().map(|r| *r)
+    }
+    /// List Clipboard Entries with Page/Limit
+    fn list(&self) -> Vec<Preview> {
+        self.store
+            .iter()
+            .map(|(i, r)| Preview {
                 index: *i,
-                preview: format!("{:?}", e.entry),
+                preview: r.entry.preview(100),
+                last_used: r.last_used,
             })
             .collect()
     }

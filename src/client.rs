@@ -6,6 +6,7 @@ use std::path::PathBuf;
 
 use thiserror::Error;
 
+use crate::clipboard::{Entry, Preview};
 use crate::message::*;
 
 #[derive(Debug, Error)]
@@ -33,32 +34,41 @@ impl Client {
 
     pub fn send(&mut self, request: Request) -> Result<Response, ClientError> {
         // write request to socket
-        let message = serde_json::to_vec(&request)?;
+        let mut message = serde_json::to_vec(&request)?;
+        message.push('\n' as u8);
         self.socket.write(&message)?;
         // read response from socket
-        let mut buffer = [0; 4196];
-        let n = self.socket.read(&mut buffer)?;
+        let mut buffer = Vec::new();
+        let n = self.socket.read_to_end(&mut buffer)?;
         let response = serde_json::from_slice(&buffer[..n])?;
         Ok(response)
     }
 
+    /// Send Request and Expect `Ok` Response
+    fn send_ok(&mut self, request: Request) -> Result<(), ClientError> {
+        let response = self.send(request)?;
+        if let Response::Ok = response {
+            return Ok(());
+        }
+        Err(ClientError::Unexpected(response))
+    }
+
+    #[inline]
     pub fn ping(&mut self) -> Result<(), ClientError> {
-        let response = self.send(Request::Ping)?;
-        if let Response::Ok = response {
-            return Ok(());
-        }
-        Err(ClientError::Unexpected(response))
+        self.send_ok(Request::Ping)
     }
 
+    #[inline]
     pub fn stop(&mut self) -> Result<(), ClientError> {
-        let response = self.send(Request::Stop)?;
-        if let Response::Ok = response {
-            return Ok(());
-        }
-        Err(ClientError::Unexpected(response))
+        self.send_ok(Request::Stop)
     }
 
-    pub fn find(&mut self, index: usize) -> Result<ClipboardEntry, ClientError> {
+    #[inline]
+    pub fn copy(&mut self, entry: Entry) -> Result<(), ClientError> {
+        self.send_ok(Request::Copy { entry })
+    }
+
+    pub fn find(&mut self, index: Option<usize>) -> Result<Entry, ClientError> {
         let response = self.send(Request::Find { index })?;
         if let Response::Entry { entry } = response {
             return Ok(entry);
@@ -66,7 +76,7 @@ impl Client {
         Err(ClientError::Unexpected(response))
     }
 
-    pub fn list(&mut self) -> Result<Vec<ClipboardPreview>, ClientError> {
+    pub fn list(&mut self) -> Result<Vec<Preview>, ClientError> {
         let response = self.send(Request::List)?;
         if let Response::Previews { previews } = response {
             return Ok(previews);
