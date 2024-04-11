@@ -1,5 +1,7 @@
 //! Data Backends for Storing Clipboard History
-use std::time::SystemTime;
+use std::fmt::Display;
+use std::str::FromStr;
+use std::time::{Duration, SystemTime};
 
 use serde::{Deserialize, Serialize};
 
@@ -9,6 +11,30 @@ use crate::clipboard::{Entry, Preview};
 
 // Exports
 pub use memory::MemoryStore;
+
+/// Backend Storage Options Available
+#[derive(Debug, Clone)]
+pub enum Storage {
+    Memory,
+}
+
+impl FromStr for Storage {
+    type Err = String;
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        match s {
+            "memory" => Ok(Self::Memory),
+            _ => Err(format!("invalid storage option: {s:?}")),
+        }
+    }
+}
+
+impl Display for Storage {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::Memory => write!(f, "memory"),
+        }
+    }
+}
 
 /// Clipboard Record Object
 #[derive(Debug, Serialize, Deserialize)]
@@ -28,6 +54,23 @@ impl Record {
     /// Update LastUsed Datetime on Record
     pub fn update(&mut self) {
         self.last_used = SystemTime::now();
+    }
+}
+
+/// Backend Initialization Options
+#[derive(Debug, Clone)]
+pub struct BackendOpts {
+    pub backend: Storage,
+    pub max_entries: Option<usize>,
+    pub lifetime: Option<Duration>,
+}
+
+/// Return Valid Backend Implementation based on Requested Settings
+impl BackendOpts {
+    pub fn build(self) -> Box<dyn Backend> {
+        Box::new(match self.backend {
+            Storage::Memory => MemoryStore::new(self),
+        })
     }
 }
 

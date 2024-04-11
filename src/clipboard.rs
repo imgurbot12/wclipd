@@ -8,6 +8,8 @@ use serde_with::serde_as;
 use wayland_clipboard_listener::ClipBoardListenContext;
 use wayland_clipboard_listener::ClipBoardListenMessage;
 
+use crate::mime::*;
+
 /// Preview of Existing Clipboard Entry
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Preview {
@@ -48,30 +50,6 @@ impl ClipBody {
             Self::Data(data) => &data,
         }
     }
-    /// Generate Content Preview
-    pub fn preview(&self, max_width: usize) -> String {
-        let s = match self {
-            Self::Text(text) => text.to_owned(),
-            Self::Data(data) => {
-                let mime_db = xdg_mime::SharedMimeInfo::new();
-                match mime_db.get_mime_type_for_data(data) {
-                    Some((mime, _)) => format!("binary data [{mime}]"),
-                    None => "unknown".to_owned(),
-                }
-            }
-        };
-        let mut s = s
-            .trim()
-            .split_whitespace()
-            .filter(|s| !s.is_empty())
-            .collect::<Vec<&str>>()
-            .join(" ");
-        if s.len() >= max_width {
-            s.truncate(max_width - 3);
-            s = format!("{s}...");
-        }
-        s
-    }
 }
 
 /// Single Record Stored in Clipboard History
@@ -91,13 +69,7 @@ impl Entry {
     }
     /// Generate new Data Clipboard Entry
     pub fn data(content: &[u8], mime: Option<String>) -> Self {
-        let mime = mime.unwrap_or_else(|| {
-            let mime_db = xdg_mime::SharedMimeInfo::new();
-            match mime_db.get_mime_type_for_data(content) {
-                Some((mime, _)) => format!("{}", mime),
-                None => "unknown".to_owned(),
-            }
-        });
+        let mime = mime.unwrap_or_else(|| guess_mime_data(content));
         Self {
             mime: vec![mime],
             body: ClipBody::Data(content.to_vec()),
@@ -113,10 +85,23 @@ impl Entry {
     pub fn as_bytes(&self) -> &[u8] {
         self.body.as_bytes()
     }
-    /// Generate Clipboard Preview
-    #[inline]
+    /// Generate Content Preview
     pub fn preview(&self, max_width: usize) -> String {
-        self.body.preview(max_width)
+        let s = match &self.body {
+            ClipBody::Text(text) => text.to_owned(),
+            ClipBody::Data(data) => preview_data(data, &self.mime),
+        };
+        let mut s = s
+            .trim()
+            .split_whitespace()
+            .filter(|s| !s.is_empty())
+            .collect::<Vec<&str>>()
+            .join(" ");
+        if s.len() >= max_width {
+            s.truncate(max_width - 3);
+            s = format!("{s}...");
+        }
+        s
     }
 }
 

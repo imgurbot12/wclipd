@@ -12,10 +12,11 @@ use wayland_clipboard_listener::WlClipboardPasteStream;
 use wayland_clipboard_listener::WlListenType;
 use wl_clipboard_rs::copy::{MimeType, Options, Source};
 
-use crate::backend::{Backend, MemoryStore};
+use crate::backend::{Backend, BackendOpts, MemoryStore};
 use crate::client::Client;
 use crate::clipboard::Entry;
 use crate::message::*;
+use crate::DaemonArgs;
 
 #[derive(Debug, Error)]
 pub enum DaemonError {
@@ -31,17 +32,25 @@ pub enum DaemonError {
 
 /// Clipboard Daemon Implementation
 pub struct Daemon {
+    kill: bool,
     addr: PathBuf,
-    backend: Arc<RwLock<dyn Backend>>,
+    backend: Arc<RwLock<Box<dyn Backend>>>,
     stopped: Arc<Barrier>,
 }
 
 impl Daemon {
     /// Spawn New Clipboard Daemon
-    pub fn new(path: PathBuf) -> Result<Self, DaemonError> {
+    pub fn new(path: PathBuf, args: DaemonArgs) -> Result<Self, DaemonError> {
+        let options = BackendOpts {
+            backend: args.backend,
+            max_entries: args.max_entries,
+            lifetime: None,
+        };
+        let backend = options.build();
         Ok(Self {
+            kill: args.kill,
             addr: path,
-            backend: Arc::new(RwLock::new(MemoryStore::new())),
+            backend: Arc::new(RwLock::new(backend)),
             stopped: Arc::new(Barrier::new(2)),
         })
     }
@@ -93,15 +102,21 @@ impl Daemon {
 
     /// Process Socket Connection
     fn process_conn(&mut self, mut stream: UnixStream) -> Result<(), DaemonError> {
-        // read and parse request from client
-        let mut buffer = String::new();
-        let mut reader = BufReader::new(&mut stream);
-        let _ = reader.read_line(&mut buffer)?;
-        let request = serde_json::from_str(&buffer)?;
-        // generate, pack, and send response to client
-        let response = self.process_request(request)?;
-        let content = serde_json::to_vec(&response)?;
-        stream.write(&content)?;
+        loop {
+            // read and parse request from client
+            let mut buffer = String::new();
+            let mut reader = BufReader::new(&mut stream);
+            let n = reader.read_line(&mut buffer)?;
+            if n == 0 {
+                break;
+            }
+            let request = serde_json::from_str(&buffer[..n])?;
+            // generate, pack, and send response to client
+            let response = self.process_request(request)?;
+            let mut content = serde_json::to_vec(&response)?;
+            content.push('\n' as u8);
+            stream.write(&content)?;
+        }
         Ok(())
     }
 
@@ -113,9 +128,17 @@ impl Daemon {
             // halt if existing daemon is already running
             if let Ok(mut client) = Client::new(self.addr.clone()) {
                 if client.ping().is_ok() {
-                    log::error!("daemon already running! exiting");
-                    self.stopped.wait();
-                    return Ok(());
+                    match self.kill {
+                        true => {
+                            log::warn!("daemon already running. killing it");
+                            let _ = client.stop().expect("failed to kill daemon");
+                        }
+                        false => {
+                            log::error!("daemon already running! exiting");
+                            self.stopped.wait();
+                            return Ok(());
+                        }
+                    };
                 };
             };
         }
@@ -173,6 +196,7 @@ impl Daemon {
 impl Clone for Daemon {
     fn clone(&self) -> Self {
         Self {
+            kill: self.kill,
             addr: self.addr.clone(),
             backend: Arc::clone(&self.backend),
             stopped: Arc::clone(&self.stopped),

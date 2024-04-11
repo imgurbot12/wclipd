@@ -1,6 +1,6 @@
 //! Daemon Client Implementation
 
-use std::io::{self, Read, Write};
+use std::io::{self, BufRead, BufReader, BufWriter, Read, Write};
 use std::os::unix::net::UnixStream;
 use std::path::PathBuf;
 
@@ -38,9 +38,10 @@ impl Client {
         message.push('\n' as u8);
         self.socket.write(&message)?;
         // read response from socket
-        let mut buffer = Vec::new();
-        let n = self.socket.read_to_end(&mut buffer)?;
-        let response = serde_json::from_slice(&buffer[..n])?;
+        let mut buffer = String::new();
+        let mut reader = BufReader::new(&mut self.socket);
+        let n = reader.read_line(&mut buffer)?;
+        let response = serde_json::from_str(&buffer[..n])?;
         Ok(response)
     }
 

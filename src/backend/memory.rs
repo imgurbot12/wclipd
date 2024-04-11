@@ -3,18 +3,20 @@ use std::collections::HashMap;
 
 use crate::clipboard::{Entry, Preview};
 
-use super::{Backend, Record};
+use super::{Backend, BackendOpts, Record};
 
 /// Memory Storage Backend for Clipboard Daemon
 pub struct MemoryStore {
+    options: BackendOpts,
     store: HashMap<usize, Record>,
     last_index: usize,
 }
 
 impl MemoryStore {
     /// Spawn New Memory Store Implementation
-    pub fn new() -> Self {
+    pub fn new(options: BackendOpts) -> Self {
         Self {
+            options,
             store: HashMap::new(),
             last_index: 0,
         }
