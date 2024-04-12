@@ -12,11 +12,11 @@ use wayland_clipboard_listener::WlClipboardPasteStream;
 use wayland_clipboard_listener::WlListenType;
 use wl_clipboard_rs::copy::{MimeType, Options, Source};
 
-use crate::backend::{Backend, BackendOpts, MemoryStore};
+use crate::backend::{Backend, BackendOpts};
 use crate::client::Client;
 use crate::clipboard::Entry;
+use crate::config::DaemonConfig;
 use crate::message::*;
-use crate::DaemonArgs;
 
 #[derive(Debug, Error)]
 pub enum DaemonError {
@@ -40,15 +40,15 @@ pub struct Daemon {
 
 impl Daemon {
     /// Spawn New Clipboard Daemon
-    pub fn new(path: PathBuf, args: DaemonArgs) -> Result<Self, DaemonError> {
+    pub fn new(path: PathBuf, cfg: DaemonConfig) -> Result<Self, DaemonError> {
         let options = BackendOpts {
-            backend: args.backend,
-            max_entries: args.max_entries,
-            lifetime: args.lifetime,
+            backend: cfg.backend,
+            lifetime: cfg.lifetime,
+            max_entries: cfg.max_entries,
         };
         let backend = options.build();
         Ok(Self {
-            kill: args.kill,
+            kill: cfg.kill,
             addr: path,
             backend: Arc::new(RwLock::new(backend)),
             stopped: Arc::new(Barrier::new(2)),

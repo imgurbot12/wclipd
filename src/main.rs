@@ -1,6 +1,6 @@
+use std::fs::read_to_string;
 use std::io::{stdin, stdout, Read, Write};
 use std::path::PathBuf;
-use std::time::Duration;
 
 use clap::{Args, Parser, Subcommand};
 use clipboard::Entry;
@@ -9,27 +9,27 @@ use thiserror::Error;
 mod backend;
 mod client;
 mod clipboard;
+mod config;
 mod daemon;
 mod message;
 mod mime;
 
-use crate::backend::Storage;
+use crate::backend::{Lifetime, Storage};
 use crate::client::{Client, ClientError};
+use crate::config::Config;
 use crate::daemon::{Daemon, DaemonError};
 
-static DEFAULT_SOCK: &'static str = "~/.var/run/clapd.sock";
-
-/// Parser for Duration Value in Cli
-fn parse_duration(arg: &str) -> Result<std::time::Duration, std::num::ParseIntError> {
-    let seconds = arg.parse()?;
-    Ok(std::time::Duration::from_secs(seconds))
-}
+static XDG_PREFIX: &'static str = "wclipd";
+static DEFAULT_SOCK: &'static str = "daemon.sock";
+static DEFAULT_CONFIG: &'static str = "config.yaml";
 
 /// Possible CLI Errors
 #[derive(Debug, Error)]
 pub enum CliError {
     #[error("Read Error")]
     ReadError(#[from] std::io::Error),
+    #[error("Invalid Config")]
+    ConfigError(#[from] serde_yaml::Error),
     #[error("Client Error")]
     ClientError(#[from] ClientError),
     #[error("Daemon Error")]
@@ -44,9 +44,6 @@ struct CopyArgs {
     /// FilePath to copy
     #[clap(short, long)]
     input: Option<PathBuf>,
-    /// Communication socket
-    #[clap(short, long, default_value_t = String::from(DEFAULT_SOCK))]
-    socket: String,
     /// Override the inferred MIME type
     #[arg(short, long)]
     mime: Option<String>,
@@ -60,9 +57,6 @@ struct CopyArgs {
 struct PasteArgs {
     /// Clipboard entry-number (from Daemon)
     entry_num: Option<usize>,
-    /// Communication Socket
-    #[clap(short, long, default_value_t = String::from(DEFAULT_SOCK))]
-    socket: String,
     /// Do not append a newline character
     #[arg(short, long, default_value_t = false)]
     no_newline: bool,
@@ -71,31 +65,21 @@ struct PasteArgs {
     list_types: bool,
 }
 
-#[derive(Debug, Clone, Args)]
-struct ClientArgs {
-    #[clap(short, long, default_value_t = String::from(DEFAULT_SOCK))]
-    socket: String,
-}
-
 /// Arguments for Daemon Command
 #[derive(Debug, Clone, Args)]
 struct DaemonArgs {
-    /// Communication socket
-    #[clap(short, long, default_value_t = String::from(DEFAULT_SOCK))]
-    socket: String,
     /// Kill existing Daemon (if running)
     #[clap(short, long, default_value_t = false)]
     kill: bool,
-
     /// Backend storage implementation
-    #[clap(short, long, default_value_t = Storage::Memory)]
-    backend: Storage,
+    #[clap(short, long)]
+    backend: Option<Storage>,
+    /// Max lifetime of clipboard entry
+    #[clap(short, long)]
+    lifetime: Option<Lifetime>,
     /// Max number of clipboard entries stored
     #[clap(short, long)]
     max_entries: Option<usize>,
-    /// Max lifetime of clipboard entry
-    #[clap(short, long, value_parser = parse_duration)]
-    lifetime: Option<Duration>,
 }
 
 /*
@@ -106,12 +90,12 @@ struct DaemonArgs {
 5. Output Preview to Rmenu Format?
 6. Reimplement Backend Clipboard Libraries
 
-[ ] Implement Shared Configuration File for Client/Daemon
-[ ] Use XDG Standard for Setting Socket by Default
-[ ] More Robust Clipboard Entry Controls
-    - [ ] Delete OnLogin
-    - [ ] Delete OnReboot
-    - [ ] Delete After N-Seconds
+[X] Implement Shared Configuration File for Client/Daemon
+[X] Use XDG Standard for Setting Socket by Default
+[X] More Robust Clipboard Entry Controls
+    - [X] Delete OnLogin
+    - [X] Delete OnReboot
+    - [X] Delete After N-Seconds
 */
 
 /// Valid CLI Command Actions
@@ -122,9 +106,9 @@ enum Command {
     /// Paste entries from Clipboard
     Paste(PasteArgs),
     /// Check Current Status of Daemon
-    Check(ClientArgs),
+    Check,
     /// List entries tracked within Daemon
-    List(ClientArgs),
+    List,
     /// Clipboard Management Daemon
     Daemon(DaemonArgs),
 }
@@ -133,19 +117,52 @@ enum Command {
 #[command(author, version, about, long_about = None)]
 #[command(propagate_version = true)]
 struct Cli {
+    /// Communication socket
+    #[clap(short, long)]
+    socket: Option<String>,
+    /// Configuration for WClipD
+    #[clap(short, long)]
+    config: Option<PathBuf>,
+    /// WClipD Command
     #[clap(subcommand)]
     command: Command,
 }
 
 impl Cli {
+    /// Load Configuration and Overload Empty Cli Settings
+    fn load_config(&mut self) -> Result<Config, CliError> {
+        let path = self.config.clone().or_else(|| {
+            xdg::BaseDirectories::with_prefix(XDG_PREFIX)
+                .expect("Failed to read xdg base dirs")
+                .find_config_file(DEFAULT_CONFIG)
+        });
+        let config = match path {
+            Some(path) => {
+                let config = read_to_string(path)?;
+                serde_yaml::from_str(&config)?
+            }
+            None => Config::default(),
+        };
+        self.socket = self.socket.clone().or(config.socket.clone());
+        Ok(config)
+    }
     /// Expand Path and Convert to PathBuf
     #[inline]
-    fn expand(&self, path: &str) -> PathBuf {
-        PathBuf::from(shellexpand::tilde(path).to_string())
+    fn get_socket(&self) -> PathBuf {
+        let path = match self.socket.as_ref() {
+            Some(sock) => sock.to_owned(),
+            None => xdg::BaseDirectories::with_prefix(XDG_PREFIX)
+                .expect("Failed to read xdg base dirs")
+                .place_runtime_file(DEFAULT_SOCK)
+                .expect("Failed to create daemon unix socket")
+                .to_string_lossy()
+                .to_string(),
+        };
+        PathBuf::from(shellexpand::tilde(&path).to_string())
     }
     /// Copy Command Handler
     fn copy(&self, args: CopyArgs) -> Result<(), CliError> {
-        let path = self.expand(&args.socket);
+        let path = self.get_socket();
         let mut client = Client::new(path)?;
         let entry = match args.text.is_empty() {
             false => Entry::text(args.text.join(" "), args.mime),
@@ -169,7 +186,7 @@ impl Cli {
     }
     /// Paste Command Handler
     fn paste(&self, args: PasteArgs) -> Result<(), CliError> {
-        let path = self.expand(&args.socket);
+        let path = self.get_socket();
         let mut client = Client::new(path)?;
         let entry = client.find(args.entry_num)?;
         if args.list_types {
@@ -186,8 +203,8 @@ impl Cli {
         Ok(())
     }
     /// Check-Daemon Command Handler
-    fn check(&self, args: ClientArgs) -> Result<(), CliError> {
-        let path = self.expand(&args.socket);
+    fn check(&self) -> Result<(), CliError> {
+        let path = self.get_socket();
         if let Ok(mut client) = Client::new(path) {
             if let Ok(_) = client.ping() {
                 return Ok(());
@@ -196,8 +213,8 @@ impl Cli {
         std::process::exit(1)
     }
     /// List Clipboard Entry Previews Command Handler
-    fn list(&self, args: ClientArgs) -> Result<(), CliError> {
-        let path = self.expand(&args.socket);
+    fn list(&self) -> Result<(), CliError> {
+        let path = self.get_socket();
         let mut client = Client::new(path)?;
         let list = client.list()?;
         for item in list {
@@ -206,9 +223,15 @@ impl Cli {
         Ok(())
     }
     /// Daemon Service Command Handler
-    fn daemon(&self, args: DaemonArgs) -> Result<(), CliError> {
-        let path = self.expand(&args.socket);
-        let mut server = Daemon::new(path, args)?;
+    fn daemon(&self, mut config: Config, args: DaemonArgs) -> Result<(), CliError> {
+        // override daemon cli arguments
+        config.daemon.kill = args.kill;
+        config.daemon.backend = args.backend.unwrap_or(config.daemon.backend);
+        config.daemon.lifetime = args.lifetime.unwrap_or(config.daemon.lifetime);
+        config.daemon.max_entries = args.max_entries.or(config.daemon.max_entries);
+        // run daemon
+        let path = self.get_socket();
+        let mut server = Daemon::new(path, config.daemon)?;
         server.run()?;
         Ok(())
     }
@@ -222,12 +245,13 @@ fn main() -> Result<(), CliError> {
     env_logger::init();
 
     // handle cli
-    let cli = Cli::parse();
+    let mut cli = Cli::parse();
+    let config = cli.load_config()?;
     match cli.command.clone() {
         Command::Copy(args) => cli.copy(args),
         Command::Paste(args) => cli.paste(args),
-        Command::Check(args) => cli.check(args),
-        Command::List(args) => cli.list(args),
-        Command::Daemon(args) => cli.daemon(args),
+        Command::Check => cli.check(),
+        Command::List => cli.list(),
+        Command::Daemon(args) => cli.daemon(config, args),
     }
 }

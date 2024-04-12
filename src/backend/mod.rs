@@ -3,7 +3,7 @@ use std::fmt::Display;
 use std::str::FromStr;
 use std::time::{Duration, SystemTime};
 
-use serde::{Deserialize, Serialize};
+use serde::{de::Error, Deserialize, Serialize};
 
 mod memory;
 
@@ -13,7 +13,7 @@ use crate::clipboard::{Entry, Preview};
 pub use memory::MemoryStore;
 
 /// Backend Storage Options Available
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub enum Storage {
     Memory,
 }
@@ -33,6 +33,82 @@ impl Display for Storage {
         match self {
             Self::Memory => write!(f, "memory"),
         }
+    }
+}
+
+/// Cache Lifetime for Storage Backend
+#[derive(Debug, Clone)]
+pub enum Lifetime {
+    Never,
+    OnLogin,
+    OnReboot,
+    Duration(Duration),
+}
+
+impl Lifetime {
+    /// Caluclate Fixed Expiration Date for Records (if Applicable)
+    pub fn fixed_expr(&self) -> Option<SystemTime> {
+        match self {
+            Self::Never => None,
+            Self::Duration(_) => None,
+            Self::OnLogin => match lastlog::search_self() {
+                Ok(record) => record.last_login.into(),
+                Err(err) => {
+                    log::error!("failed last-login check: {err:?}");
+                    None
+                }
+            },
+            Self::OnReboot => match lastlog::system_boot() {
+                Ok(uptime) => uptime.last_login.into(),
+                Err(err) => {
+                    log::error!("failed last-reboot check: {err:?}");
+                    None
+                }
+            },
+        }
+    }
+    /// Runtime Check if Timestamp is Past Expiration
+    pub fn dyn_expr(&self) -> Option<SystemTime> {
+        match self {
+            Self::Duration(duration) => Some(SystemTime::now() - *duration),
+            _ => None,
+        }
+    }
+}
+
+impl Display for Lifetime {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::Never => write!(f, "never"),
+            Self::OnLogin => write!(f, "login"),
+            Self::OnReboot => write!(f, "reboot"),
+            Self::Duration(d) => write!(f, "{}", d.as_secs()),
+        }
+    }
+}
+
+impl FromStr for Lifetime {
+    type Err = String;
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        match s {
+            "never" => Ok(Self::Never),
+            "login" | "onlogin" => Ok(Self::OnLogin),
+            "reboot" | "onreboot" => Ok(Self::OnReboot),
+            _ => {
+                let seconds: u64 = s.parse().map_err(|_| format!("invalid lifetime: {s:?}"))?;
+                Ok(Self::Duration(Duration::from_secs(seconds)))
+            }
+        }
+    }
+}
+
+impl<'de> Deserialize<'de> for Lifetime {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        let s: &str = Deserialize::deserialize(deserializer)?;
+        Lifetime::from_str(s).map_err(D::Error::custom)
     }
 }
 
@@ -61,8 +137,8 @@ impl Record {
 #[derive(Debug, Clone)]
 pub struct BackendOpts {
     pub backend: Storage,
+    pub lifetime: Lifetime,
     pub max_entries: Option<usize>,
-    pub lifetime: Option<Duration>,
 }
 
 /// Return Valid Backend Implementation based on Requested Settings

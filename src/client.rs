@@ -1,6 +1,6 @@
 //! Daemon Client Implementation
 
-use std::io::{self, BufRead, BufReader, BufWriter, Read, Write};
+use std::io::{self, BufRead, BufReader, Write};
 use std::os::unix::net::UnixStream;
 use std::path::PathBuf;
 

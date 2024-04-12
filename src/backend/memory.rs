@@ -11,30 +11,31 @@ pub struct MemoryStore {
     options: BackendOpts,
     store: HashMap<usize, Record>,
     last_index: usize,
+    fixed_expr: Option<SystemTime>,
 }
 
 impl MemoryStore {
     /// Spawn New Memory Store Implementation
     pub fn new(options: BackendOpts) -> Self {
+        let fixed_expr = options.lifetime.fixed_expr();
         Self {
             options,
             store: HashMap::new(),
             last_index: 0,
+            fixed_expr,
         }
     }
     /// Remove Expired Items from Store
     fn clean(&mut self) {
         // remove expired entries
         let before = self.store.len();
-        let expr = match self.options.lifetime {
-            Some(duration) => SystemTime::now() - duration,
-            None => UNIX_EPOCH,
-        };
+        let expr_1 = self.fixed_expr.unwrap_or(UNIX_EPOCH);
+        let expr_2 = self.options.lifetime.dyn_expr().unwrap_or(UNIX_EPOCH);
         let mut records: Vec<_> = self
             .store
             .clone()
             .into_iter()
-            .filter(|(_, r)| r.last_used > expr)
+            .filter(|(_, r)| r.last_used > expr_1 && r.last_used > expr_2)
             .collect();
         // sort records by earliest to eldest and remove eldest entries
         records.sort_by(|(_, r1), (_, r2)| r2.last_used.cmp(&r1.last_used));

@@ -3,8 +3,6 @@
 use std::time::SystemTime;
 
 use serde::{Deserialize, Serialize};
-use serde_with::base64::Base64;
-use serde_with::serde_as;
 use wayland_clipboard_listener::ClipBoardListenContext;
 use wayland_clipboard_listener::ClipBoardListenMessage;
 
@@ -19,11 +17,10 @@ pub struct Preview {
 }
 
 /// DataTypes for Clipboard Entry
-#[serde_as]
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub enum ClipBody {
     Text(String),
-    Data(#[serde_as(as = "Base64")] Vec<u8>),
+    Data(#[serde(with = "base64_serial")] Vec<u8>),
 }
 
 impl From<ClipBoardListenContext> for ClipBody {
@@ -111,5 +108,23 @@ impl From<ClipBoardListenMessage> for Entry {
             mime: value.mime_types,
             body: ClipBody::from(value.context),
         }
+    }
+}
+
+mod base64_serial {
+    use base64::prelude::{Engine as _, BASE64_STANDARD};
+    use serde::{Deserialize, Serialize};
+    use serde::{Deserializer, Serializer};
+
+    pub fn serialize<S: Serializer>(v: &Vec<u8>, s: S) -> Result<S::Ok, S::Error> {
+        let b64 = BASE64_STANDARD.encode(v);
+        String::serialize(&b64, s)
+    }
+
+    pub fn deserialize<'de, D: Deserializer<'de>>(d: D) -> Result<Vec<u8>, D::Error> {
+        let b64 = String::deserialize(d)?;
+        BASE64_STANDARD
+            .decode(b64.as_bytes())
+            .map_err(|e| serde::de::Error::custom(e))
     }
 }
