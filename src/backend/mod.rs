@@ -10,6 +10,7 @@ mod disk;
 mod memory;
 
 use crate::clipboard::{Entry, Preview};
+use crate::{DEFAULT_DISK_STORE, XDG_PREFIX};
 
 // Exports
 pub use disk::Disk;
@@ -27,6 +28,12 @@ impl FromStr for Storage {
     fn from_str(s: &str) -> Result<Self, Self::Err> {
         match s {
             "memory" => Ok(Self::Memory),
+            "disk" => {
+                let path = xdg::BaseDirectories::with_prefix(XDG_PREFIX)
+                    .expect("Failed to read xdg base dirs")
+                    .get_cache_file(DEFAULT_DISK_STORE);
+                Ok(Self::Disk(path))
+            }
             path => {
                 let path = PathBuf::from_str(&path)
                     .map_err(|_| format!("invalid storate option: {s:?}"))?;

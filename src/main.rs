@@ -22,6 +22,7 @@ use crate::daemon::{Daemon, DaemonError};
 static XDG_PREFIX: &'static str = "wclipd";
 static DEFAULT_SOCK: &'static str = "daemon.sock";
 static DEFAULT_CONFIG: &'static str = "config.yaml";
+static DEFAULT_DISK_STORE: &'static str = "db";
 
 /// Possible CLI Errors
 #[derive(Debug, Error)]
@@ -92,7 +93,7 @@ struct DaemonArgs {
 
 /*
 1. Option to Kill Existing Daemon rather than Exit if exists [DONE]
-2. Choose Storage Option
+2. Choose Storage Option [DONE]
 3. Choose Max Clipboard Entries [DONE]
 4. Choose Clipboard Entry Lifetime [DONE]
 5. Output Preview to Rmenu Format?

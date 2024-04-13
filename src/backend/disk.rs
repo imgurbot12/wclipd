@@ -13,6 +13,7 @@ use crate::clipboard::Preview;
 
 type Bucket<'a> = kv::Bucket<'a, Integer, Json<Record>>;
 
+/// Disk Clipboard Storage Implementation
 pub struct Disk {
     store: kv::Store,
     options: BackendOpts,
@@ -84,9 +85,11 @@ impl Backend for Disk {
     fn add(&mut self, entry: Record) -> usize {
         self.clean();
         self.last_index += 1;
-        self.bucket()
+        let bucket = self.bucket();
+        bucket
             .set(&Integer::from(self.last_index), &Json(entry))
             .expect("failed to store kv record");
+        bucket.flush().expect("failed kv flush to disk");
         self.last_index
     }
     fn get(&mut self, index: usize) -> Option<Record> {
@@ -112,18 +115,24 @@ impl Backend for Disk {
         self.clean();
         if let Some(mut record) = self.get(*index) {
             record.update();
-            self.bucket()
+            let bucket = self.bucket();
+            bucket
                 .set(&Integer::from(*index), &Json(record.clone()))
                 .expect("failed to update kv record");
+            bucket.flush().expect("failed kv flush to disk");
         }
     }
     fn delete(&mut self, index: usize) {
-        self.bucket()
+        let bucket = self.bucket();
+        bucket
             .remove(&Integer::from(index))
             .expect("failed to delete kv record");
+        bucket.flush().expect("failed kv flush to disk");
     }
     fn clear(&mut self) {
-        self.bucket().clear().expect("failed to empty kv store");
+        let bucket = self.bucket();
+        bucket.clear().expect("failed to empty kv store");
+        bucket.flush().expect("failed kv flush to disk");
     }
     fn list(&mut self, preview_size: usize) -> Vec<Preview> {
         self.clean();
