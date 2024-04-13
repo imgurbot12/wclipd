@@ -9,6 +9,7 @@ edition = "2021"
 base64 = "0.22.0"
 clap = { version = "4.5.4", features = ["derive"] }
 env_logger = "0.11.3"
+kv = { version = "0.24.0", features = ["serde_json", "json-value"] }
 lastlog = { version = "0.3.0", features = ["libc"], git = "https://github.com/imgurbot12/lastlog" }
 log = "0.4.21"
 serde = { version = "1.0.197", features = ["derive"] }

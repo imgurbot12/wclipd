@@ -77,8 +77,8 @@ impl Client {
         Err(ClientError::Unexpected(response))
     }
 
-    pub fn list(&mut self) -> Result<Vec<Preview>, ClientError> {
-        let response = self.send(Request::List)?;
+    pub fn list(&mut self, length: usize) -> Result<Vec<Preview>, ClientError> {
+        let response = self.send(Request::List { length })?;
         if let Response::Previews { previews } = response {
             return Ok(previews);
         }

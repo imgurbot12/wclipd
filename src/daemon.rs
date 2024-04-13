@@ -75,8 +75,8 @@ impl Daemon {
                     .expect("copy failed");
                 Response::Ok
             }
-            Request::List => {
-                let previews = backend.preview();
+            Request::List { length } => {
+                let previews = backend.preview(length);
                 Response::Previews { previews }
             }
             Request::Find { index } => {

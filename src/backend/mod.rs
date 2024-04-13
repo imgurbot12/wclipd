@@ -1,20 +1,24 @@
 //! Data Backends for Storing Clipboard History
 use std::fmt::Display;
+use std::path::PathBuf;
 use std::str::FromStr;
 use std::time::{Duration, SystemTime};
 
 use serde::{de::Error, Deserialize, Serialize};
 
+mod disk;
 mod memory;
 
 use crate::clipboard::{Entry, Preview};
 
 // Exports
-pub use memory::MemoryStore;
+pub use disk::Disk;
+pub use memory::Memory;
 
 /// Backend Storage Options Available
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub enum Storage {
+    Disk(PathBuf),
     Memory,
 }
 
@@ -23,7 +27,11 @@ impl FromStr for Storage {
     fn from_str(s: &str) -> Result<Self, Self::Err> {
         match s {
             "memory" => Ok(Self::Memory),
-            _ => Err(format!("invalid storage option: {s:?}")),
+            path => {
+                let path = PathBuf::from_str(&path)
+                    .map_err(|_| format!("invalid storate option: {s:?}"))?;
+                Ok(Self::Disk(path))
+            }
         }
     }
 }
@@ -31,6 +39,7 @@ impl FromStr for Storage {
 impl Display for Storage {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
+            Self::Disk(path) => write!(f, "{path:?}"),
             Self::Memory => write!(f, "memory"),
         }
     }
@@ -144,35 +153,36 @@ pub struct BackendOpts {
 /// Return Valid Backend Implementation based on Requested Settings
 impl BackendOpts {
     pub fn build(self) -> Box<dyn Backend> {
-        Box::new(match self.backend {
-            Storage::Memory => MemoryStore::new(self),
-        })
+        match self.backend.clone() {
+            Storage::Disk(path) => Box::new(Disk::new(path, self)),
+            Storage::Memory => Box::new(Memory::new(self)),
+        }
     }
 }
 
 /// Storage Backend Abstraction Trait
 pub trait Backend: Send + Sync {
     fn add(&mut self, entry: Record) -> usize;
-    fn get(&mut self, index: usize) -> Option<&Record>;
-    fn latest(&mut self) -> Option<&Record>;
+    fn get(&mut self, index: usize) -> Option<Record>;
+    fn latest(&mut self) -> Option<Record>;
     fn exists(&mut self, entry: &Entry) -> Option<usize>;
     fn update(&mut self, index: &usize);
     fn delete(&mut self, index: usize);
     fn clear(&mut self);
-    fn list(&mut self) -> Vec<Preview>;
+    fn list(&mut self, preview_size: usize) -> Vec<Preview>;
 }
 
 impl dyn Backend {
     /// Find Entry with Index (if Specified)
-    pub fn find(&mut self, index: Option<usize>) -> Option<&Record> {
+    pub fn find(&mut self, index: Option<usize>) -> Option<Record> {
         match index {
             Some(idx) => self.get(idx),
             None => self.latest(),
         }
     }
     /// Organize List of Previews before Showing
-    pub fn preview(&mut self) -> Vec<Preview> {
-        let mut previews = self.list();
+    pub fn preview(&mut self, preview_size: usize) -> Vec<Preview> {
+        let mut previews = self.list(preview_size);
         previews.sort_by(|a, b| {
             let first = b.last_used.cmp(&a.last_used);
             let second = b.index.cmp(&a.index);

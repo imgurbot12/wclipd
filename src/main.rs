@@ -65,6 +65,14 @@ struct PasteArgs {
     list_types: bool,
 }
 
+/// Arguments for List Command
+#[derive(Debug, Clone, Args)]
+struct ListArgs {
+    /// Clipboard Preview Max-Length
+    #[clap(short, long, default_value_t = 100)]
+    length: usize,
+}
+
 /// Arguments for Daemon Command
 #[derive(Debug, Clone, Args)]
 struct DaemonArgs {
@@ -108,7 +116,7 @@ enum Command {
     /// Check Current Status of Daemon
     Check,
     /// List entries tracked within Daemon
-    List,
+    List(ListArgs),
     /// Clipboard Management Daemon
     Daemon(DaemonArgs),
 }
@@ -213,10 +221,10 @@ impl Cli {
         std::process::exit(1)
     }
     /// List Clipboard Entry Previews Command Handler
-    fn list(&self) -> Result<(), CliError> {
+    fn list(&self, args: ListArgs) -> Result<(), CliError> {
         let path = self.get_socket();
         let mut client = Client::new(path)?;
-        let list = client.list()?;
+        let list = client.list(args.length)?;
         for item in list {
             println!("{}.\t{}", item.index, item.preview);
         }
@@ -251,7 +259,7 @@ fn main() -> Result<(), CliError> {
         Command::Copy(args) => cli.copy(args),
         Command::Paste(args) => cli.paste(args),
         Command::Check => cli.check(),
-        Command::List => cli.list(),
+        Command::List(args) => cli.list(args),
         Command::Daemon(args) => cli.daemon(config, args),
     }
 }

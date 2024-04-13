@@ -7,14 +7,14 @@ use crate::clipboard::{Entry, Preview};
 use super::{Backend, BackendOpts, Record};
 
 /// Memory Storage Backend for Clipboard Daemon
-pub struct MemoryStore {
+pub struct Memory {
     options: BackendOpts,
     store: HashMap<usize, Record>,
     last_index: usize,
     fixed_expr: Option<SystemTime>,
 }
 
-impl MemoryStore {
+impl Memory {
     /// Spawn New Memory Store Implementation
     pub fn new(options: BackendOpts) -> Self {
         let fixed_expr = options.lifetime.fixed_expr();
@@ -52,7 +52,7 @@ impl MemoryStore {
     }
 }
 
-impl Backend for MemoryStore {
+impl Backend for Memory {
     /// Add new Clipboard Entry
     fn add(&mut self, entry: Record) -> usize {
         self.clean();
@@ -60,13 +60,10 @@ impl Backend for MemoryStore {
         self.store.insert(self.last_index, entry);
         self.last_index
     }
-    /// Delete Existing Clipboard Entry from Storage
-    fn delete(&mut self, index: usize) {
-        self.store.remove(&index);
-    }
-    /// Delete All Clipboard Records from MemoryStore
-    fn clear(&mut self) {
-        self.store.clear();
+    /// Find an Existing Clipboard Entry by Index
+    fn get(&mut self, index: usize) -> Option<Record> {
+        self.clean();
+        self.store.get(&index).map(|r| r.clone())
     }
     /// Check if Specified Clipboard Entry Already Exists
     fn exists(&mut self, entry: &Entry) -> Option<usize> {
@@ -76,6 +73,13 @@ impl Backend for MemoryStore {
             .find(|(_, r)| r.entry.body == entry.body)
             .map(|(i, _)| *i)
     }
+    /// Find Latest Entry from within Store
+    fn latest(&mut self) -> Option<Record> {
+        self.clean();
+        let mut records: Vec<_> = self.store.values().collect();
+        records.sort_by_key(|r| r.last_used);
+        records.last().map(|r| (**r).clone())
+    }
     /// Update an Existing Clipboard Entry
     fn update(&mut self, index: &usize) {
         self.clean();
@@ -83,26 +87,22 @@ impl Backend for MemoryStore {
             record.update();
         };
     }
-    /// Find an Existing Clipboard Entry by Index
-    fn get(&mut self, index: usize) -> Option<&Record> {
-        self.clean();
-        self.store.get(&index)
+    /// Delete Existing Clipboard Entry from Storage
+    fn delete(&mut self, index: usize) {
+        self.store.remove(&index);
     }
-    /// Find Latest Entry from within Store
-    fn latest(&mut self) -> Option<&Record> {
-        self.clean();
-        let mut records: Vec<_> = self.store.values().collect();
-        records.sort_by_key(|r| r.last_used);
-        records.last().map(|r| *r)
+    /// Delete All Clipboard Records from MemoryStore
+    fn clear(&mut self) {
+        self.store.clear();
     }
     /// List Clipboard Entries with Page/Limit
-    fn list(&mut self) -> Vec<Preview> {
+    fn list(&mut self, preview_size: usize) -> Vec<Preview> {
         self.clean();
         self.store
             .iter()
             .map(|(i, r)| Preview {
                 index: *i,
-                preview: r.entry.preview(100),
+                preview: r.entry.preview(preview_size),
                 last_used: r.last_used,
             })
             .collect()

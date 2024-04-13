@@ -23,7 +23,7 @@ pub enum Request {
     /// Add New Clipboard Entry
     Copy { entry: Entry },
     /// View Clipboard History
-    List,
+    List { length: usize },
     /// Find Specific History Entry
     Find { index: Option<usize> },
     /// Delete Clipboard Entries
