@@ -17,7 +17,7 @@ pub use disk::Disk;
 pub use memory::Memory;
 
 /// Backend Storage Options Available
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone)]
 pub enum Storage {
     Disk(PathBuf),
     Memory,
@@ -49,6 +49,16 @@ impl Display for Storage {
             Self::Disk(path) => write!(f, "{path:?}"),
             Self::Memory => write!(f, "memory"),
         }
+    }
+}
+
+impl<'de> Deserialize<'de> for Storage {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        let s: &str = Deserialize::deserialize(deserializer)?;
+        Storage::from_str(s).map_err(D::Error::custom)
     }
 }
 
