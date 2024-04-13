@@ -91,22 +91,6 @@ struct DaemonArgs {
     max_entries: Option<usize>,
 }
 
-/*
-1. Option to Kill Existing Daemon rather than Exit if exists [DONE]
-2. Choose Storage Option [DONE]
-3. Choose Max Clipboard Entries [DONE]
-4. Choose Clipboard Entry Lifetime [DONE]
-5. Output Preview to Rmenu Format?
-6. Reimplement Backend Clipboard Libraries
-
-[X] Implement Shared Configuration File for Client/Daemon
-[X] Use XDG Standard for Setting Socket by Default
-[X] More Robust Clipboard Entry Controls
-    - [X] Delete OnLogin
-    - [X] Delete OnReboot
-    - [X] Delete After N-Seconds
-*/
-
 /// Valid CLI Command Actions
 #[derive(Debug, Clone, Subcommand)]
 enum Command {
