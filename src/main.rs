@@ -223,7 +223,7 @@ impl Cli {
         let ebuflen = list.iter().map(|p| p.preview.len()).max();
         let now = SystemTime::now();
         for item in list {
-            let sbuf = sbuflen.unwrap_or(0) + 1;
+            let sbuf = sbuflen.unwrap_or(0) + 1 - format!("{}", item.index).len();
             let sbuf: String = (0..sbuf).map(|_| " ").collect();
             let ebuf = ebuflen.unwrap_or(0) + 1 - item.preview.len();
             let ebuf: String = (0..ebuf).map(|_| " ").collect();
