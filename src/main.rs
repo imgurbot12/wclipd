@@ -1,6 +1,7 @@
 use std::fs::read_to_string;
 use std::io::{stdin, stdout, Read, Write};
 use std::path::PathBuf;
+use std::time::{Duration, SystemTime};
 
 use clap::{Args, Parser, Subcommand};
 use clipboard::Entry;
@@ -48,6 +49,9 @@ struct CopyArgs {
     /// Override the inferred MIME type
     #[arg(short, long)]
     mime: Option<String>,
+    /// Copy to Primary Selection
+    #[arg(short, long, default_value_t = false)]
+    primary: bool,
     /// Clear Clipboard rather than copy anything
     #[arg(short, long, default_value_t = false)]
     clear: bool,
@@ -70,7 +74,7 @@ struct PasteArgs {
 #[derive(Debug, Clone, Args)]
 struct ListArgs {
     /// Clipboard Preview Max-Length
-    #[clap(short, long, default_value_t = 100)]
+    #[clap(short, long, default_value_t = 70)]
     length: usize,
 }
 
@@ -106,6 +110,7 @@ enum Command {
     Daemon(DaemonArgs),
 }
 
+/// Cli Application Flags and Command Configuration
 #[derive(Debug, Clone, Parser)]
 #[command(author, version, about, long_about = None)]
 #[command(propagate_version = true)]
@@ -139,8 +144,8 @@ impl Cli {
         self.socket = self.socket.clone().or(config.socket.clone());
         Ok(config)
     }
+
     /// Expand Path and Convert to PathBuf
-    #[inline]
     fn get_socket(&self) -> PathBuf {
         let path = match self.socket.as_ref() {
             Some(sock) => sock.to_owned(),
@@ -153,6 +158,7 @@ impl Cli {
         };
         PathBuf::from(shellexpand::tilde(&path).to_string())
     }
+
     /// Copy Command Handler
     fn copy(&self, args: CopyArgs) -> Result<(), CliError> {
         let path = self.get_socket();
@@ -174,9 +180,10 @@ impl Cli {
             },
         };
         log::debug!("sending entry {}", entry.preview(100));
-        client.copy(entry)?;
+        client.copy(entry, args.primary)?;
         Ok(())
     }
+
     /// Paste Command Handler
     fn paste(&self, args: PasteArgs) -> Result<(), CliError> {
         let path = self.get_socket();
@@ -195,6 +202,7 @@ impl Cli {
         }
         Ok(())
     }
+
     /// Check-Daemon Command Handler
     fn check(&self) -> Result<(), CliError> {
         let path = self.get_socket();
@@ -205,16 +213,29 @@ impl Cli {
         }
         std::process::exit(1)
     }
+
     /// List Clipboard Entry Previews Command Handler
     fn list(&self, args: ListArgs) -> Result<(), CliError> {
         let path = self.get_socket();
         let mut client = Client::new(path)?;
         let list = client.list(args.length)?;
+        let sbuflen = list.iter().map(|p| format!("{}", p.index).len()).max();
+        let ebuflen = list.iter().map(|p| p.preview.len()).max();
+        let now = SystemTime::now();
         for item in list {
-            println!("{}.\t{}", item.index, item.preview);
+            let sbuf = sbuflen.unwrap_or(0) + 1;
+            let sbuf: String = (0..sbuf).map(|_| " ").collect();
+            let ebuf = ebuflen.unwrap_or(0) + 1 - item.preview.len();
+            let ebuf: String = (0..ebuf).map(|_| " ").collect();
+            // limit duration to seconds by converting and converting back
+            let since = now.duration_since(item.last_used).unwrap_or_default();
+            let since = Duration::from_secs(since.as_secs());
+            let human = humantime::format_duration(since);
+            println!("{}.{sbuf}{}{ebuf}({human})", item.index, item.preview);
         }
         Ok(())
     }
+
     /// Daemon Service Command Handler
     fn daemon(&self, mut config: Config, args: DaemonArgs) -> Result<(), CliError> {
         // override daemon cli arguments

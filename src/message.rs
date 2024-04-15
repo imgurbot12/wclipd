@@ -21,7 +21,7 @@ pub enum Request {
     /// Stop Daemon Instance
     Stop,
     /// Add New Clipboard Entry
-    Copy { entry: Entry },
+    Copy { entry: Entry, primary: bool },
     /// View Clipboard History
     List { length: usize },
     /// Find Specific History Entry

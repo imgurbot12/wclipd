@@ -65,8 +65,8 @@ impl Client {
     }
 
     #[inline]
-    pub fn copy(&mut self, entry: Entry) -> Result<(), ClientError> {
-        self.send_ok(Request::Copy { entry })
+    pub fn copy(&mut self, entry: Entry, primary: bool) -> Result<(), ClientError> {
+        self.send_ok(Request::Copy { entry, primary })
     }
 
     pub fn find(&mut self, index: Option<usize>) -> Result<Entry, ClientError> {

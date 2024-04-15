@@ -84,10 +84,13 @@ impl Entry {
     }
     /// Generate Content Preview
     pub fn preview(&self, max_width: usize) -> String {
-        let s = match &self.body {
+        let mut s = match &self.body {
             ClipBody::Text(text) => text.to_owned(),
             ClipBody::Data(data) => preview_data(data, &self.mime),
         };
+        if s.chars().all(char::is_whitespace) {
+            s = format!("{s:?}");
+        }
         let mut s = s
             .trim()
             .split_whitespace()
