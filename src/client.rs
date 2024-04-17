@@ -65,8 +65,18 @@ impl Client {
     }
 
     #[inline]
+    pub fn clear(&mut self) -> Result<(), ClientError> {
+        self.send_ok(Request::Clear)
+    }
+
+    #[inline]
     pub fn copy(&mut self, entry: Entry, primary: bool) -> Result<(), ClientError> {
         self.send_ok(Request::Copy { entry, primary })
+    }
+
+    #[inline]
+    pub fn select(&mut self, index: usize, primary: bool) -> Result<(), ClientError> {
+        self.send_ok(Request::Select { index, primary })
     }
 
     pub fn find(&mut self, index: Option<usize>) -> Result<Entry, ClientError> {

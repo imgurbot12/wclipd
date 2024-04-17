@@ -17,6 +17,18 @@ use crate::clipboard::Entry;
 use crate::config::DaemonConfig;
 use crate::message::*;
 
+fn copy(entry: Entry, primary: bool) -> Result<(), DaemonError> {
+    let mut stream = WlClipboardCopyStream::init()?;
+    thread::spawn(move || {
+        let context = entry.body.as_bytes().to_vec();
+        let mimetypes = entry.mime.iter().map(|s| s.as_str()).collect();
+        stream
+            .copy_to_clipboard(context, mimetypes, primary)
+            .expect("clipboard copy failed");
+    });
+    Ok(())
+}
+
 #[derive(Debug, Error)]
 pub enum DaemonError {
     #[error("Server Already Running Elsewhere")]
@@ -63,30 +75,38 @@ impl Daemon {
                 self.stopped.wait();
                 Response::Ok
             }
-            Request::Copy { entry, primary } => {
-                let mut stream = WlClipboardCopyStream::init()?;
-                thread::spawn(move || {
-                    let context = entry.body.as_bytes().to_vec();
-                    let mimetypes = entry.mime.iter().map(|s| s.as_str()).collect();
-                    stream
-                        .copy_to_clipboard(context, mimetypes, primary)
-                        .expect("clipboard copy failed");
-                });
+            Request::Clear => {
+                let entry = Entry::text("".to_string(), None);
+                copy(entry.clone(), true)?;
+                copy(entry, false)?;
                 Response::Ok
+            }
+            Request::Copy { entry, primary } => {
+                copy(entry, primary)?;
+                Response::Ok
+            }
+            Request::Select { index, primary } => {
+                let record = backend.find(Some(index));
+                match record {
+                    Some(record) => {
+                        copy(record.entry, primary)?;
+                        backend.update(&index);
+                        Response::Ok
+                    }
+                    None => Response::error(format!("No Such Index {index:?})")),
+                }
             }
             Request::List { length } => {
                 let previews = backend.preview(length);
                 Response::Previews { previews }
             }
             Request::Find { index } => {
-                let entry = backend.find(index);
-                match entry {
-                    Some(entry) => Response::Entry {
-                        entry: entry.entry.clone(),
+                let record = backend.find(index);
+                match record {
+                    Some(record) => Response::Entry {
+                        entry: record.entry.clone(),
                     },
-                    None => Response::Error {
-                        error: format!("No Such Index {index:?})"),
-                    },
+                    None => Response::error(format!("No Such Index {index:?})")),
                 }
             }
             Request::Wipe(wipe) => {

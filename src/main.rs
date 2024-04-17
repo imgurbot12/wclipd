@@ -36,6 +36,8 @@ pub enum CliError {
     ClientError(#[from] ClientError),
     #[error("Daemon Error")]
     DaemonError(#[from] DaemonError),
+    #[error("Conflict Error")]
+    ConflictError(String),
 }
 
 /// Arguments for Copy Command
@@ -55,6 +57,16 @@ struct CopyArgs {
     /// Clear Clipboard rather than copy anything
     #[arg(short, long, default_value_t = false)]
     clear: bool,
+}
+
+/// Arguments for Select Command
+#[derive(Debug, Clone, Args)]
+struct SelectArgs {
+    /// Clipboard entry-number (from Daemon)
+    entry_num: usize,
+    /// Copy to Primary Selection
+    #[arg(short, long, default_value_t = false)]
+    primary: bool,
 }
 
 /// Arguments for Paste Command
@@ -100,6 +112,8 @@ struct DaemonArgs {
 enum Command {
     /// Copy input to Clipboard
     Copy(CopyArgs),
+    /// Recopy entry into active Clipboard
+    Select(SelectArgs),
     /// Paste entries from Clipboard
     Paste(PasteArgs),
     /// Check Current Status of Daemon
@@ -163,6 +177,14 @@ impl Cli {
     fn copy(&self, args: CopyArgs) -> Result<(), CliError> {
         let path = self.get_socket();
         let mut client = Client::new(path)?;
+        if args.clear {
+            if !args.text.is_empty() || args.input.is_some() {
+                return Err(CliError::ConflictError(
+                    "Cannot specify input when clearing clipboard".to_owned(),
+                ));
+            }
+            return Ok(client.clear()?);
+        }
         let entry = match args.text.is_empty() {
             false => Entry::text(args.text.join(" "), args.mime),
             true => match args.input {
@@ -181,6 +203,14 @@ impl Cli {
         };
         log::debug!("sending entry {}", entry.preview(100));
         client.copy(entry, args.primary)?;
+        Ok(())
+    }
+
+    /// Select Command Handler
+    fn select(&self, args: SelectArgs) -> Result<(), CliError> {
+        let path = self.get_socket();
+        let mut client = Client::new(path)?;
+        client.select(args.entry_num, args.primary)?;
         Ok(())
     }
 
@@ -263,6 +293,7 @@ fn main() -> Result<(), CliError> {
     let config = cli.load_config()?;
     match cli.command.clone() {
         Command::Copy(args) => cli.copy(args),
+        Command::Select(args) => cli.select(args),
         Command::Paste(args) => cli.paste(args),
         Command::Check => cli.check(),
         Command::List(args) => cli.list(args),
