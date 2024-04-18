@@ -79,6 +79,11 @@ impl Client {
         self.send_ok(Request::Select { index, primary })
     }
 
+    #[inline]
+    pub fn delete(&mut self, index: usize) -> Result<(), ClientError> {
+        self.send_ok(Request::Delete { index })
+    }
+
     pub fn find(&mut self, index: Option<usize>) -> Result<Entry, ClientError> {
         let response = self.send(Request::Find { index })?;
         if let Response::Entry { entry } = response {

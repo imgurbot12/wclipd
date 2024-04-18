@@ -109,6 +109,13 @@ impl Daemon {
                     None => Response::error(format!("No Such Index {index:?})")),
                 }
             }
+            Request::Delete { index } => match backend.find(Some(index)).is_none() {
+                true => Response::error(format!("No Such Index {index:?})")),
+                false => {
+                    backend.delete(index);
+                    Response::Ok
+                }
+            },
             Request::Wipe(wipe) => {
                 match wipe {
                     Wipe::All => backend.clear(),

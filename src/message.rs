@@ -30,6 +30,8 @@ pub enum Request {
     List { length: usize },
     /// Find Specific History Entry
     Find { index: Option<usize> },
+    /// Delete an Existing Clipboard Entry
+    Delete { index: usize },
     /// Delete Clipboard Entries
     Wipe(Wipe),
 }

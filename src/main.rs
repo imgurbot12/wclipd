@@ -8,6 +8,7 @@ use clipboard::Entry;
 use thiserror::Error;
 
 mod backend;
+mod backend2;
 mod client;
 mod clipboard;
 mod config;
@@ -62,7 +63,7 @@ struct CopyArgs {
 /// Arguments for Select Command
 #[derive(Debug, Clone, Args)]
 struct SelectArgs {
-    /// Clipboard entry-number (from Daemon)
+    /// Clipboard entry index within manager
     entry_num: usize,
     /// Copy to Primary Selection
     #[arg(short, long, default_value_t = false)]
@@ -72,7 +73,7 @@ struct SelectArgs {
 /// Arguments for Paste Command
 #[derive(Debug, Clone, Args)]
 struct PasteArgs {
-    /// Clipboard entry-number (from Daemon)
+    /// Clipboard entry index within manager
     entry_num: Option<usize>,
     /// Do not append a newline character
     #[arg(short, long, default_value_t = false)]
@@ -88,6 +89,12 @@ struct ListArgs {
     /// Clipboard Preview Max-Length
     #[clap(short, long, default_value_t = 70)]
     length: usize,
+}
+
+#[derive(Debug, Clone, Args)]
+struct DeleteArgs {
+    /// Clipboard entry index within manager
+    entry_num: usize,
 }
 
 /// Arguments for Daemon Command
@@ -110,17 +117,19 @@ struct DaemonArgs {
 /// Valid CLI Command Actions
 #[derive(Debug, Clone, Subcommand)]
 enum Command {
-    /// Copy input to Clipboard
+    /// Copy input to clipboard and manager
     Copy(CopyArgs),
-    /// Recopy entry into active Clipboard
+    /// Recopy entry within manager
     Select(SelectArgs),
-    /// Paste entries from Clipboard
+    /// Paste entries tracked within manager
     Paste(PasteArgs),
-    /// Check Current Status of Daemon
+    /// Check current status of daemon
     Check,
-    /// List entries tracked within Daemon
+    /// List entries within manager
     List(ListArgs),
-    /// Clipboard Management Daemon
+    /// Delete entry within manager
+    Delete(DeleteArgs),
+    /// Run clipboard manager daemon
     Daemon(DaemonArgs),
 }
 
@@ -266,6 +275,14 @@ impl Cli {
         Ok(())
     }
 
+    /// Delete Command Handler
+    fn delete(&self, args: DeleteArgs) -> Result<(), CliError> {
+        let path = self.get_socket();
+        let mut client = Client::new(path)?;
+        client.delete(args.entry_num)?;
+        Ok(())
+    }
+
     /// Daemon Service Command Handler
     fn daemon(&self, mut config: Config, args: DaemonArgs) -> Result<(), CliError> {
         // override daemon cli arguments
@@ -297,6 +314,7 @@ fn main() -> Result<(), CliError> {
         Command::Paste(args) => cli.paste(args),
         Command::Check => cli.check(),
         Command::List(args) => cli.list(args),
+        Command::Delete(args) => cli.delete(args),
         Command::Daemon(args) => cli.daemon(config, args),
     }
 }
