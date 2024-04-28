@@ -1,8 +1,7 @@
 //! Memory Storage for Backend Implementation
 
-use std::cell::RefCell;
 use std::collections::HashMap;
-use std::rc::Rc;
+use std::sync::{Arc, RwLock};
 
 use super::backend::*;
 
@@ -22,7 +21,7 @@ impl<'a> Backend for Memory {
     fn categories(&self) -> Vec<String> {
         self.store.keys().map(|c| c.to_owned()).collect()
     }
-    fn category(&mut self, category: Option<&str>) -> Box<dyn BackendCategory> {
+    fn category(&mut self, category: Category) -> Box<dyn BackendCategory> {
         let name = category.unwrap_or("default");
         if !self.store.contains_key(name) {
             let category = MemoryCategory::new();
@@ -34,14 +33,14 @@ impl<'a> Backend for Memory {
 }
 
 struct MemoryCategory {
-    store: Rc<RefCell<HashMap<usize, Record>>>,
+    store: Arc<RwLock<HashMap<usize, Record>>>,
     last_index: usize,
 }
 
 impl MemoryCategory {
     fn new() -> Self {
         Self {
-            store: Rc::new(RefCell::new(HashMap::new())),
+            store: Arc::new(RwLock::new(HashMap::new())),
             last_index: 0,
         }
     }
@@ -50,7 +49,7 @@ impl MemoryCategory {
 impl Clone for MemoryCategory {
     fn clone(&self) -> Self {
         Self {
-            store: Rc::clone(&self.store),
+            store: Arc::clone(&self.store),
             last_index: self.last_index,
         }
     }
@@ -58,16 +57,32 @@ impl Clone for MemoryCategory {
 
 impl BackendCategory for MemoryCategory {
     fn get(&self, index: &usize) -> Option<Record> {
-        self.store.borrow().get(index).map(|r| r.clone())
+        self.store
+            .read()
+            .expect("category lock read failed")
+            .get(index)
+            .map(|r| r.clone())
     }
     fn insert(&mut self, index: usize, record: Record) {
-        self.store.borrow_mut().insert(index, record);
+        self.store
+            .write()
+            .expect("category lock write failed")
+            .insert(index, record);
     }
     fn delete(&mut self, index: &usize) {
-        self.store.borrow_mut().remove(index);
+        self.store
+            .write()
+            .expect("category lock write failed")
+            .remove(index);
     }
     fn iter(&self) -> Box<dyn Iterator<Item = Record>> {
-        Box::new(self.store.borrow().clone().into_values())
+        Box::new(
+            self.store
+                .read()
+                .expect("category lock read failed")
+                .clone()
+                .into_values(),
+        )
     }
     fn index(&mut self) -> usize {
         let index = self.last_index;

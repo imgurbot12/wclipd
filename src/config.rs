@@ -1,24 +1,27 @@
 //! Configuration for WClipD
 use serde::Deserialize;
 
-use crate::backend::{Lifetime, Storage};
+use crate::backend::BackendConfig;
+use crate::message::Cat;
 
 #[derive(Debug, Deserialize)]
 pub struct DaemonConfig {
     #[serde(skip)]
     pub kill: bool,
-    pub backend: Storage,
-    pub lifetime: Lifetime,
-    pub max_entries: Option<usize>,
+    pub capture_live: bool,
+    pub backends: BackendConfig,
+    pub term_backend: Cat,
+    pub live_backend: Cat,
 }
 
 impl Default for DaemonConfig {
     fn default() -> Self {
         Self {
             kill: false,
-            backend: Storage::Memory,
-            lifetime: Lifetime::OnLogin,
-            max_entries: None,
+            capture_live: true,
+            backends: BackendConfig::new(),
+            term_backend: None,
+            live_backend: None,
         }
     }
 }

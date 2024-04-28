@@ -5,6 +5,8 @@ use serde::{Deserialize, Serialize};
 
 use crate::clipboard::{Entry, Preview};
 
+use super::CategoryConfig;
+
 /// Backend Storage Record Object
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Record {
@@ -48,8 +50,18 @@ impl CleanCfg {
     }
 }
 
+impl From<&CategoryConfig> for CleanCfg {
+    fn from(value: &CategoryConfig) -> Self {
+        Self {
+            fixed: value.expiration.fixed_expiration(),
+            dynamic: value.expiration.dynanmic_expriration(),
+            max_entries: value.max_entries,
+        }
+    }
+}
+
 /// Backend Category Implementation
-pub trait BackendCategory {
+pub trait BackendCategory: Send + Sync {
     fn iter(&self) -> Box<dyn Iterator<Item = Record>>;
     fn get(&self, index: &usize) -> Option<Record>;
     fn insert(&mut self, index: usize, record: Record);
@@ -74,9 +86,17 @@ impl dyn BackendCategory {
         previews.sort_by_key(|p| p.index);
         previews
     }
+    /// Find Latest or Index (if Specfied)
+    pub fn find(&self, index: Option<usize>) -> Option<Record> {
+        match index {
+            Some(idx) => self.get(&idx),
+            None => self.latest(),
+        }
+    }
     /// Update LastUpdated Date for Record
     pub fn touch(&mut self, index: usize) {
-        if let Some(record) = self.get(&index) {
+        if let Some(mut record) = self.get(&index) {
+            record.last_used = SystemTime::now();
             self.insert(index, record);
         }
     }
@@ -93,6 +113,23 @@ impl dyn BackendCategory {
                 self.insert(index, record);
                 index
             }
+        }
+    }
+    /// Find & Touch Record (if Found)
+    pub fn select(&mut self, index: Option<usize>) -> Option<Record> {
+        match self.find(index) {
+            Some(record) => {
+                self.touch(record.index);
+                Some(record)
+            }
+            None => None,
+        }
+    }
+    /// Delete All Records within the Category
+    pub fn clear(&mut self) {
+        let indexes: Vec<_> = self.iter().map(|r| r.index).collect();
+        for index in indexes {
+            self.delete(&index);
         }
     }
     /// Delete Expired Records within Backend
@@ -117,8 +154,11 @@ impl dyn BackendCategory {
     }
 }
 
+/// Type Alias for Category Specification
+pub type Category<'a> = Option<&'a str>;
+
 /// Backend Implementation
-pub trait Backend {
+pub trait Backend: Send + Sync {
     fn categories(&self) -> Vec<String>;
-    fn category(&mut self, category: Option<&str>) -> Box<dyn BackendCategory>;
+    fn category(&mut self, category: Category) -> Box<dyn BackendCategory>;
 }

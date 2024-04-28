@@ -15,7 +15,6 @@ mod daemon;
 mod message;
 mod mime;
 
-use crate::backend::{Lifetime, Storage};
 use crate::client::{Client, ClientError};
 use crate::config::Config;
 use crate::daemon::{Daemon, DaemonError};
@@ -96,15 +95,9 @@ struct DaemonArgs {
     /// Kill existing Daemon (if running)
     #[clap(short, long, default_value_t = false)]
     kill: bool,
-    /// Backend storage implementation
+    /// Toggle capturing of live clipboard events
     #[clap(short, long)]
-    backend: Option<Storage>,
-    /// Max lifetime of clipboard entry
-    #[clap(short, long)]
-    lifetime: Option<Lifetime>,
-    /// Max number of clipboard entries stored
-    #[clap(short, long)]
-    max_entries: Option<usize>,
+    live: Option<bool>,
 }
 
 /// Valid CLI Command Actions
@@ -202,7 +195,7 @@ impl Cli {
             },
         };
         log::debug!("sending entry {}", entry.preview(100));
-        client.copy(entry, args.primary)?;
+        client.copy(entry, args.primary, None)?;
         Ok(())
     }
 
@@ -210,7 +203,7 @@ impl Cli {
     fn select(&self, args: SelectArgs) -> Result<(), CliError> {
         let path = self.get_socket();
         let mut client = Client::new(path)?;
-        client.select(args.entry_num, args.primary)?;
+        client.select(args.entry_num, args.primary, None)?;
         Ok(())
     }
 
@@ -218,7 +211,7 @@ impl Cli {
     fn paste(&self, args: PasteArgs) -> Result<(), CliError> {
         let path = self.get_socket();
         let mut client = Client::new(path)?;
-        let entry = client.find(args.entry_num)?;
+        let entry = client.find(args.entry_num, None)?;
         if args.list_types {
             for mime in entry.mime {
                 println!("{mime}");
@@ -248,7 +241,7 @@ impl Cli {
     fn list(&self, args: ListArgs) -> Result<(), CliError> {
         let path = self.get_socket();
         let mut client = Client::new(path)?;
-        let list = client.list(args.length)?;
+        let list = client.list(args.length, None)?;
         let sbuflen = list.iter().map(|p| format!("{}", p.index).len()).max();
         let ebuflen = list.iter().map(|p| p.preview.len()).max();
         let now = SystemTime::now();
@@ -270,9 +263,7 @@ impl Cli {
     fn daemon(&self, mut config: Config, args: DaemonArgs) -> Result<(), CliError> {
         // override daemon cli arguments
         config.daemon.kill = args.kill;
-        config.daemon.backend = args.backend.unwrap_or(config.daemon.backend);
-        config.daemon.lifetime = args.lifetime.unwrap_or(config.daemon.lifetime);
-        config.daemon.max_entries = args.max_entries.or(config.daemon.max_entries);
+        config.daemon.capture_live = args.live.unwrap_or(config.daemon.capture_live);
         // run daemon
         let path = self.get_socket();
         let mut server = Daemon::new(path, config.daemon)?;

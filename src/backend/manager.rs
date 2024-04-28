@@ -2,6 +2,8 @@
 
 use std::collections::HashMap;
 
+use crate::backend::CleanCfg;
+
 use super::backend::{Backend, BackendCategory};
 use super::config::{BackendConfig, CategoryConfig};
 
@@ -52,7 +54,9 @@ impl Backend for Manager {
         let storage = config.storage.to_string();
         log::debug!("backend for category {category:?} is {storage:?}");
         if let Some(backend) = self.stores.get_mut(&storage) {
-            return backend.category(category);
+            let mut category = backend.category(category);
+            category.clean(&CleanCfg::from(&config));
+            return category;
         }
         let backend = config.storage.backend();
         self.stores.insert(storage.to_owned(), backend);

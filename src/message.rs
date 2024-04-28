@@ -12,6 +12,9 @@ pub enum Wipe {
     Single { index: usize },
 }
 
+/// Message Category Type Alias
+pub type Cat = Option<String>;
+
 /// All Possible Request Messages Supported by Daemon
 #[derive(Debug, Serialize, Deserialize)]
 #[serde(tag = "request", rename_all = "lowercase")]
@@ -23,15 +26,23 @@ pub enum Request {
     /// Clear Active Clipboard
     Clear,
     /// Add New Clipboard Entry
-    Copy { entry: Entry, primary: bool },
+    Copy {
+        entry: Entry,
+        primary: bool,
+        category: Cat,
+    },
     /// Recopy an Existing Entry
-    Select { index: usize, primary: bool },
+    Select {
+        index: usize,
+        primary: bool,
+        category: Cat,
+    },
     /// View Clipboard History
-    List { length: usize },
+    List { length: usize, category: Cat },
     /// Find Specific History Entry
-    Find { index: Option<usize> },
+    Find { index: Option<usize>, category: Cat },
     /// Delete Clipboard Entries
-    Wipe(Wipe),
+    Wipe { wipe: Wipe, category: Cat },
 }
 
 /// All Possible Response Messages Supported by Daemon

@@ -82,6 +82,14 @@ impl Entry {
     pub fn as_bytes(&self) -> &[u8] {
         self.body.as_bytes()
     }
+    /// Get First MimeType in Available MimeTypes
+    #[inline]
+    pub fn mime(&self) -> String {
+        self.mime
+            .get(0)
+            .cloned()
+            .unwrap_or_else(|| "N/A".to_owned())
+    }
     /// Generate Content Preview
     pub fn preview(&self, max_width: usize) -> String {
         let mut s = match &self.body {

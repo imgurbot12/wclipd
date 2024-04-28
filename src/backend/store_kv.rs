@@ -20,7 +20,7 @@ impl Backend for Kv {
     fn categories(&self) -> Vec<String> {
         self.store.buckets()
     }
-    fn category(&mut self, category: Option<&str>) -> Box<dyn BackendCategory> {
+    fn category(&mut self, category: Category) -> Box<dyn BackendCategory> {
         let bucket = self
             .store
             .bucket(category)

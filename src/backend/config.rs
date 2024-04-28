@@ -24,7 +24,7 @@ fn disk_default() -> PathBuf {
 pub type BackendConfig = HashMap<String, CategoryConfig>;
 
 /// Backend Category Configuration Settings
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Deserialize)]
 pub struct CategoryConfig {
     pub storage: Storage,
     pub expiration: Expiration,
@@ -106,7 +106,7 @@ pub enum Expiration {
 }
 
 impl Expiration {
-    fn fixed_expiration(&self) -> Option<SystemTime> {
+    pub fn fixed_expiration(&self) -> Option<SystemTime> {
         match self {
             Self::Never => None,
             Self::Duration(_) => None,
@@ -127,7 +127,7 @@ impl Expiration {
         }
     }
     /// Runtime Check if Timestamp is Past Expiration
-    fn dynanmic_expriration(&self) -> Option<SystemTime> {
+    pub fn dynanmic_expriration(&self) -> Option<SystemTime> {
         match self {
             Self::Duration(duration) => Some(SystemTime::now() - *duration),
             _ => None,
