@@ -194,7 +194,7 @@ impl Daemon {
     }
 
     /// Listen for Incoming Server Requests Forever
-    fn server(&mut self) -> Result<(), DaemonError> {
+    fn server(&mut self) {
         log::debug!("listening for socket messages");
         // cleanup any remnants of dead daemon/socket
         if self.addr.exists() {
@@ -210,7 +210,7 @@ impl Daemon {
                             self.start_wg.wait();
                             log::error!("daemon already running! exiting");
                             self.stop_wg.wait();
-                            return Ok(());
+                            return;
                         }
                     };
                 };
@@ -219,7 +219,7 @@ impl Daemon {
         let _ = remove_file(&self.addr);
         // spawn new socket server
         self.start_wg.wait();
-        let listener = UnixListener::bind(&self.addr)?;
+        let listener = UnixListener::bind(&self.addr).expect("failed to open socket listener");
         for stream in listener.incoming() {
             let result = match stream {
                 Ok(stream) => self.process_conn(stream),
@@ -232,13 +232,13 @@ impl Daemon {
                 log::error!("stream error: {err:?}");
             }
         }
-        Ok(())
     }
 
     /// Watch for Clipboard Updates and Save Non-Empty Copies
     fn watch_clipboard(&mut self) {
         log::debug!("watching clipboard for activity");
-        let mut stream = WlClipboardPasteStream::init(WlListenType::ListenOnCopy).unwrap();
+        let mut stream = WlClipboardPasteStream::init(WlListenType::ListenOnCopy)
+            .expect("failed to open clipboard listener");
         self.start_wg.wait();
         for message in stream.paste_stream().flatten() {
             // collect clipboard entry object

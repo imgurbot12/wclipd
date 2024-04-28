@@ -241,7 +241,8 @@ impl Cli {
     fn list(&self, args: ListArgs) -> Result<(), CliError> {
         let path = self.get_socket();
         let mut client = Client::new(path)?;
-        let list = client.list(args.length, None)?;
+        let mut list = client.list(args.length, None)?;
+        list.sort_by_key(|p| p.last_used);
         let sbuflen = list.iter().map(|p| format!("{}", p.index).len()).max();
         let ebuflen = list.iter().map(|p| p.preview.len()).max();
         let now = SystemTime::now();
