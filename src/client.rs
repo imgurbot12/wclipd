@@ -70,30 +70,43 @@ impl Client {
     }
 
     #[inline]
-    pub fn copy(&mut self, entry: Entry, primary: bool) -> Result<(), ClientError> {
-        self.send_ok(Request::Copy { entry, primary })
+    pub fn copy(&mut self, entry: Entry, primary: bool, category: Cat) -> Result<(), ClientError> {
+        self.send_ok(Request::Copy {
+            entry,
+            primary,
+            category,
+        })
     }
 
     #[inline]
-    pub fn select(&mut self, index: usize, primary: bool) -> Result<(), ClientError> {
-        self.send_ok(Request::Select { index, primary })
+    pub fn select(
+        &mut self,
+        index: usize,
+        primary: bool,
+        category: Cat,
+    ) -> Result<(), ClientError> {
+        self.send_ok(Request::Select {
+            index,
+            primary,
+            category,
+        })
     }
 
     #[inline]
-    pub fn delete(&mut self, index: usize) -> Result<(), ClientError> {
-        self.send_ok(Request::Delete { index })
+    pub fn delete(&mut self, index: usize, category: Cat) -> Result<(), ClientError> {
+        self.send_ok(Request::Delete { index, category })
     }
 
-    pub fn find(&mut self, index: Option<usize>) -> Result<Entry, ClientError> {
-        let response = self.send(Request::Find { index })?;
+    pub fn find(&mut self, index: Option<usize>, category: Cat) -> Result<Entry, ClientError> {
+        let response = self.send(Request::Find { index, category })?;
         if let Response::Entry { entry } = response {
             return Ok(entry);
         }
         Err(ClientError::Unexpected(response))
     }
 
-    pub fn list(&mut self, length: usize) -> Result<Vec<Preview>, ClientError> {
-        let response = self.send(Request::List { length })?;
+    pub fn list(&mut self, length: usize, category: Cat) -> Result<Vec<Preview>, ClientError> {
+        let response = self.send(Request::List { length, category })?;
         if let Response::Previews { previews } = response {
             return Ok(previews);
         }
