@@ -12,8 +12,11 @@ pub enum Wipe {
     Single { index: usize },
 }
 
-/// Message Category Type Alias
-pub type Cat = Option<String>;
+/// Message Backend Group Type Alias
+pub type Grp = Option<String>;
+
+/// Message Index Type Alias;
+pub type Idx = Option<usize>;
 
 /// All Possible Request Messages Supported by Daemon
 #[derive(Debug, Serialize, Deserialize)]
@@ -25,26 +28,29 @@ pub enum Request {
     Stop,
     /// Clear Active Clipboard
     Clear,
+    /// List Existing Groups
+    Groups,
     /// Add New Clipboard Entry
     Copy {
         entry: Entry,
         primary: bool,
-        category: Cat,
+        group: Grp,
+        index: Idx,
     },
     /// Recopy an Existing Entry
     Select {
         index: usize,
         primary: bool,
-        category: Cat,
+        group: Grp,
     },
     /// View Clipboard History
-    List { length: usize, category: Cat },
+    List { length: usize, group: Grp },
     /// Delete an Existing Clipboard Entry
-    Delete { index: usize, category: Cat },
+    Delete { index: usize, group: Grp },
     /// Find Specific History Entry
-    Find { index: Option<usize>, category: Cat },
+    Find { index: Option<usize>, group: Grp },
     /// Delete Clipboard Entries
-    Wipe { wipe: Wipe, category: Cat },
+    Wipe { wipe: Wipe, group: Grp },
 }
 
 /// All Possible Response Messages Supported by Daemon
@@ -55,6 +61,8 @@ pub enum Response {
     Ok,
     /// Error Message
     Error { error: String },
+    /// List of Avaialble Groups
+    Groups { groups: Vec<String> },
     /// Returned Clipboard Entry
     Entry { entry: Entry },
     /// Clipboard Previews

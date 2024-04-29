@@ -70,43 +70,53 @@ impl Client {
     }
 
     #[inline]
-    pub fn copy(&mut self, entry: Entry, primary: bool, category: Cat) -> Result<(), ClientError> {
+    pub fn copy(
+        &mut self,
+        entry: Entry,
+        primary: bool,
+        group: Grp,
+        index: Idx,
+    ) -> Result<(), ClientError> {
         self.send_ok(Request::Copy {
             entry,
             primary,
-            category,
+            group,
+            index,
         })
     }
 
     #[inline]
-    pub fn select(
-        &mut self,
-        index: usize,
-        primary: bool,
-        category: Cat,
-    ) -> Result<(), ClientError> {
+    pub fn select(&mut self, index: usize, primary: bool, group: Grp) -> Result<(), ClientError> {
         self.send_ok(Request::Select {
             index,
             primary,
-            category,
+            group,
         })
     }
 
     #[inline]
-    pub fn delete(&mut self, index: usize, category: Cat) -> Result<(), ClientError> {
-        self.send_ok(Request::Delete { index, category })
+    pub fn delete(&mut self, index: usize, group: Grp) -> Result<(), ClientError> {
+        self.send_ok(Request::Delete { index, group })
     }
 
-    pub fn find(&mut self, index: Option<usize>, category: Cat) -> Result<Entry, ClientError> {
-        let response = self.send(Request::Find { index, category })?;
+    pub fn groups(&mut self) -> Result<Vec<String>, ClientError> {
+        let response = self.send(Request::Groups)?;
+        if let Response::Groups { groups } = response {
+            return Ok(groups);
+        }
+        Err(ClientError::Unexpected(response))
+    }
+
+    pub fn find(&mut self, index: Option<usize>, group: Grp) -> Result<Entry, ClientError> {
+        let response = self.send(Request::Find { index, group })?;
         if let Response::Entry { entry } = response {
             return Ok(entry);
         }
         Err(ClientError::Unexpected(response))
     }
 
-    pub fn list(&mut self, length: usize, category: Cat) -> Result<Vec<Preview>, ClientError> {
-        let response = self.send(Request::List { length, category })?;
+    pub fn list(&mut self, length: usize, group: Grp) -> Result<Vec<Preview>, ClientError> {
+        let response = self.send(Request::List { length, group })?;
         if let Response::Previews { previews } = response {
             return Ok(previews);
         }

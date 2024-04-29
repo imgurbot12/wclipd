@@ -6,7 +6,7 @@ use std::path::PathBuf;
 use std::str::FromStr;
 use std::time::{Duration, SystemTime};
 
-use serde::{de::Error, Deserialize};
+use serde::Deserialize;
 
 use super::backend::Backend;
 use super::store_kv::Kv;
@@ -21,17 +21,17 @@ fn disk_default() -> PathBuf {
 }
 
 /// Backend Configuration Settings
-pub type BackendConfig = HashMap<String, CategoryConfig>;
+pub type BackendConfig = HashMap<String, GroupConfig>;
 
-/// Backend Category Configuration Settings
+/// Backend Group Configuration Settings
 #[derive(Debug, Clone, Deserialize)]
-pub struct CategoryConfig {
+pub struct GroupConfig {
     pub storage: Storage,
     pub expiration: Expiration,
     pub max_entries: Option<usize>,
 }
 
-impl Default for CategoryConfig {
+impl Default for GroupConfig {
     fn default() -> Self {
         Self {
             storage: Storage::Disk(disk_default()),
@@ -83,16 +83,6 @@ impl Display for Storage {
             Self::Disk(path) => write!(f, "{path:?}"),
             Self::Memory => write!(f, "memory"),
         }
-    }
-}
-
-impl<'de> Deserialize<'de> for Storage {
-    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
-    where
-        D: serde::Deserializer<'de>,
-    {
-        let s: &str = Deserialize::deserialize(deserializer)?;
-        Storage::from_str(s).map_err(D::Error::custom)
     }
 }
 
@@ -158,15 +148,5 @@ impl FromStr for Expiration {
                 Ok(Self::Duration(Duration::from_secs(seconds)))
             }
         }
-    }
-}
-
-impl<'de> Deserialize<'de> for Expiration {
-    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
-    where
-        D: serde::Deserializer<'de>,
-    {
-        let s: &str = Deserialize::deserialize(deserializer)?;
-        Expiration::from_str(s).map_err(D::Error::custom)
     }
 }

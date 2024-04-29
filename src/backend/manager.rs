@@ -4,8 +4,8 @@ use std::collections::HashMap;
 
 use crate::backend::CleanCfg;
 
-use super::backend::{Backend, BackendCategory};
-use super::config::{BackendConfig, CategoryConfig};
+use super::backend::{Backend, BackendGroup};
+use super::config::{BackendConfig, GroupConfig};
 
 /// Backend Storage Manager Implementation
 pub struct Manager {
@@ -20,9 +20,9 @@ impl Manager {
             stores: HashMap::new(),
         }
     }
-    /// Retrieve Configuration Settings for Particular Category
-    fn get_config(&mut self, category: Option<&str>) -> CategoryConfig {
-        if let Some(name) = category {
+    /// Retrieve Configuration Settings for Particular Group
+    fn get_config(&mut self, group: Option<&str>) -> GroupConfig {
+        if let Some(name) = group {
             if let Some(config) = self.config.get(name) {
                 return config.clone();
             }
@@ -30,9 +30,8 @@ impl Manager {
         if let Some(config) = self.config.get("default") {
             return config.clone();
         }
-        let name = category.unwrap_or("default");
-        self.config
-            .insert(name.to_owned(), CategoryConfig::default());
+        let name = group.unwrap_or("default");
+        self.config.insert(name.to_owned(), GroupConfig::default());
         return self
             .config
             .get(name)
@@ -42,27 +41,23 @@ impl Manager {
 }
 
 impl Backend for Manager {
-    fn categories(&self) -> Vec<String> {
-        self.stores
-            .values()
-            .map(|b| b.categories())
-            .flatten()
-            .collect()
+    fn groups(&self) -> Vec<String> {
+        self.stores.values().map(|b| b.groups()).flatten().collect()
     }
-    fn category(&mut self, category: Option<&str>) -> Box<dyn BackendCategory> {
-        let config = self.get_config(category);
+    fn group(&mut self, group: Option<&str>) -> Box<dyn BackendGroup> {
+        let config = self.get_config(group);
         let storage = config.storage.to_string();
-        log::debug!("backend for category {category:?} is {storage:?}");
+        log::debug!("backend for group {group:?} is {storage:?}");
         if let Some(backend) = self.stores.get_mut(&storage) {
-            let mut category = backend.category(category);
-            category.clean(&CleanCfg::from(&config));
-            return category;
+            let mut group = backend.group(group);
+            group.clean(&CleanCfg::from(&config));
+            return group;
         }
         let backend = config.storage.backend();
         self.stores.insert(storage.to_owned(), backend);
         self.stores
             .get_mut(&storage)
             .expect("failed to find backend")
-            .category(category)
+            .group(group)
     }
 }

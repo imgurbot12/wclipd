@@ -4,7 +4,6 @@ use std::path::PathBuf;
 use std::time::{Duration, SystemTime};
 
 use clap::{Args, Parser, Subcommand};
-use clipboard::Entry;
 use thiserror::Error;
 
 mod backend;
@@ -14,10 +13,13 @@ mod config;
 mod daemon;
 mod message;
 mod mime;
+mod table;
 
 use crate::client::{Client, ClientError};
+use crate::clipboard::Entry;
 use crate::config::Config;
 use crate::daemon::{Daemon, DaemonError};
+use crate::table::*;
 
 static XDG_PREFIX: &'static str = "wclipd";
 static DEFAULT_SOCK: &'static str = "daemon.sock";
@@ -46,7 +48,13 @@ struct CopyArgs {
     text: Vec<String>,
     /// FilePath to copy
     #[clap(short, long)]
-    input: Option<PathBuf>,
+    file: Option<PathBuf>,
+    /// Specific Index to Copy Into
+    #[clap(short, long)]
+    index: Option<usize>,
+    /// Specific Group To Copy Into
+    #[clap(short, long)]
+    group: Option<String>,
     /// Override the inferred MIME type
     #[arg(short, long)]
     mime: Option<String>,
@@ -84,9 +92,17 @@ struct PasteArgs {
 /// Arguments for List Command
 #[derive(Debug, Clone, Args)]
 struct ListArgs {
+    /// List of Groups to List
+    groups: Vec<String>,
     /// Clipboard Preview Max-Length
-    #[clap(short, long, default_value_t = 70)]
-    length: usize,
+    #[clap(short, long)]
+    length: Option<usize>,
+    /// List All Groups if Specified
+    #[clap(short, long)]
+    all: bool,
+    /// Override Table Style
+    #[clap(short = 's', long)]
+    table_style: Option<Style>,
 }
 
 #[derive(Debug, Clone, Args)]
@@ -179,7 +195,7 @@ impl Cli {
         let path = self.get_socket();
         let mut client = Client::new(path)?;
         if args.clear {
-            if !args.text.is_empty() || args.input.is_some() {
+            if !args.text.is_empty() || args.file.is_some() {
                 return Err(CliError::ConflictError(
                     "Cannot specify input when clearing clipboard".to_owned(),
                 ));
@@ -188,7 +204,7 @@ impl Cli {
         }
         let entry = match args.text.is_empty() {
             false => Entry::text(args.text.join(" "), args.mime),
-            true => match args.input {
+            true => match args.file {
                 Some(input) => {
                     let mime = args.mime.unwrap_or_else(|| mime::guess_mime_path(&input));
                     let content = std::fs::read(&input)?;
@@ -203,7 +219,7 @@ impl Cli {
             },
         };
         log::debug!("sending entry {}", entry.preview(100));
-        client.copy(entry, args.primary, None)?;
+        client.copy(entry, args.primary, args.group, args.index)?;
         Ok(())
     }
 
@@ -246,24 +262,43 @@ impl Cli {
     }
 
     /// List Clipboard Entry Previews Command Handler
-    fn list(&self, args: ListArgs) -> Result<(), CliError> {
+    fn list(&self, mut config: Config, mut args: ListArgs) -> Result<(), CliError> {
+        // override daemon cli arguments
+        config.list.preview_length = args.length.unwrap_or(config.list.preview_length);
+        config.list.table.style = args.table_style.unwrap_or(config.list.table.style);
+        // complete rendering of requested lists
         let path = self.get_socket();
         let mut client = Client::new(path)?;
-        let mut list = client.list(args.length, None)?;
-        list.sort_by_key(|p| p.last_used);
-        let sbuflen = list.iter().map(|p| format!("{}", p.index).len()).max();
-        let ebuflen = list.iter().map(|p| p.preview.len()).max();
+        if args.groups.is_empty() {
+            args.groups = args.all.then(|| client.groups()).unwrap_or_else(|| {
+                Ok(vec![config
+                    .list
+                    .default_group
+                    .unwrap_or_else(|| "default".to_owned())])
+            })?;
+        }
         let now = SystemTime::now();
-        for item in list {
-            let sbuf = sbuflen.unwrap_or(0) + 1 - format!("{}", item.index).len();
-            let sbuf: String = (0..sbuf).map(|_| " ").collect();
-            let ebuf = ebuflen.unwrap_or(0) + 1 - item.preview.len();
-            let ebuf: String = (0..ebuf).map(|_| " ").collect();
-            // limit duration to seconds by converting and converting back
-            let since = now.duration_since(item.last_used).unwrap_or_default();
-            let since = Duration::from_secs(since.as_secs());
-            let human = humantime::format_duration(since);
-            println!("{}.{sbuf}{}{ebuf}({human})", item.index, item.preview);
+        let mut it = args.groups.into_iter().peekable();
+        while let Some(group) = it.next() {
+            // generate preview into table structure
+            let previews = client.list(config.list.preview_length, Some(group.clone()))?;
+            let data: Table = previews
+                .into_iter()
+                .map(|p| {
+                    let since = now.duration_since(p.last_used).unwrap_or_default();
+                    let since = Duration::from_secs(since.as_secs());
+                    let human = humantime::format_duration(since).to_string();
+                    vec![format!("{}", p.index), p.preview, human]
+                })
+                .collect();
+            // build ascii table
+            let mut table = AsciiTable::new(group, Style::Fancy);
+            table.align_column(0, Align::Right);
+            table.print(data);
+            // add extra space between tables
+            if it.peek().is_some() {
+                println!("");
+            }
         }
         Ok(())
     }
@@ -273,6 +308,7 @@ impl Cli {
         let path = self.get_socket();
         let mut client = Client::new(path)?;
         client.delete(args.entry_num, None)?;
+
         Ok(())
     }
 
@@ -304,7 +340,7 @@ fn main() -> Result<(), CliError> {
         Command::Select(args) => cli.select(args),
         Command::Paste(args) => cli.paste(args),
         Command::Check => cli.check(),
-        Command::List(args) => cli.list(args),
+        Command::List(args) => cli.list(config, args),
         Command::Delete(args) => cli.delete(args),
         Command::Daemon(args) => cli.daemon(config, args),
     }

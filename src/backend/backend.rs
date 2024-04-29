@@ -5,7 +5,7 @@ use serde::{Deserialize, Serialize};
 
 use crate::clipboard::{Entry, Preview};
 
-use super::CategoryConfig;
+use super::GroupConfig;
 
 /// Backend Storage Record Object
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -17,7 +17,7 @@ pub struct Record {
 }
 
 impl Record {
-    fn new(index: usize, entry: Entry) -> Self {
+    pub fn new(index: usize, entry: Entry) -> Self {
         let now = SystemTime::now();
         Record {
             index,
@@ -50,8 +50,8 @@ impl CleanCfg {
     }
 }
 
-impl From<&CategoryConfig> for CleanCfg {
-    fn from(value: &CategoryConfig) -> Self {
+impl From<&GroupConfig> for CleanCfg {
+    fn from(value: &GroupConfig) -> Self {
         Self {
             fixed: value.expiration.fixed_expiration(),
             dynamic: value.expiration.dynanmic_expriration(),
@@ -60,8 +60,8 @@ impl From<&CategoryConfig> for CleanCfg {
     }
 }
 
-/// Backend Category Implementation
-pub trait BackendCategory: Send + Sync {
+/// Backend Group Implementation
+pub trait BackendGroup: Send + Sync {
     fn iter(&self) -> Box<dyn Iterator<Item = Record>>;
     fn get(&self, index: &usize) -> Option<Record>;
     fn insert(&mut self, index: usize, record: Record);
@@ -69,7 +69,7 @@ pub trait BackendCategory: Send + Sync {
     fn index(&mut self) -> usize;
 }
 
-impl dyn BackendCategory {
+impl dyn BackendGroup {
     /// Retrieve Latest Stored Record
     pub fn latest(&self) -> Option<Record> {
         self.iter().max_by_key(|r| r.last_used)
@@ -125,7 +125,7 @@ impl dyn BackendCategory {
             None => None,
         }
     }
-    /// Delete All Records within the Category
+    /// Delete All Records within the Group
     pub fn clear(&mut self) {
         let indexes: Vec<_> = self.iter().map(|r| r.index).collect();
         for index in indexes {
@@ -154,11 +154,11 @@ impl dyn BackendCategory {
     }
 }
 
-/// Type Alias for Category Specification
-pub type Category<'a> = Option<&'a str>;
+/// Type Alias for Group Specification
+pub type Group<'a> = Option<&'a str>;
 
 /// Backend Implementation
 pub trait Backend: Send + Sync {
-    fn categories(&self) -> Vec<String>;
-    fn category(&mut self, category: Category) -> Box<dyn BackendCategory>;
+    fn groups(&self) -> Vec<String>;
+    fn group(&mut self, group: Group) -> Box<dyn BackendGroup>;
 }

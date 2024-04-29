@@ -11,7 +11,7 @@ use wayland_clipboard_listener::WlClipboardPasteStream;
 use wayland_clipboard_listener::WlListenType;
 use wayland_clipboard_listener::{WlClipboardCopyStream, WlClipboardListenerError};
 
-use crate::backend::{Backend, BackendCategory, Manager};
+use crate::backend::{Backend, BackendGroup, Manager, Record};
 use crate::client::Client;
 use crate::clipboard::Entry;
 use crate::config::DaemonConfig;
@@ -45,8 +45,8 @@ pub enum DaemonError {
 struct Shared {
     pub ignore: Option<Entry>,
     pub backend: Box<dyn Backend>,
-    pub term_category: Cat,
-    pub live_category: Cat,
+    pub term_group: Grp,
+    pub live_group: Grp,
 }
 
 impl Shared {
@@ -54,13 +54,13 @@ impl Shared {
         Self {
             ignore: None,
             backend: Box::new(Manager::new(cfg.backends)),
-            term_category: None,
-            live_category: None,
+            term_group: None,
+            live_group: None,
         }
     }
     #[inline]
-    pub fn category(&mut self, category: Cat) -> Box<dyn BackendCategory> {
-        self.backend.category(category.as_deref())
+    pub fn group(&mut self, group: Grp) -> Box<dyn BackendGroup> {
+        self.backend.group(group.as_deref())
     }
 }
 
@@ -96,19 +96,32 @@ impl Daemon {
     }
 
     /// Add Entry To Clipboard with Following Settings
-    pub fn copy(&mut self, entry: Entry, primary: bool, category: Cat) -> Result<(), DaemonError> {
+    pub fn copy(
+        &mut self,
+        entry: Entry,
+        primary: bool,
+        group: Grp,
+        index: Idx,
+    ) -> Result<(), DaemonError> {
         // update ignore tracking for live-updates to avoid double-copy
         let mut shared = self.shared.write().expect("rwlock write failed");
         shared.ignore = Some(entry.clone());
-        // add entry to specified category
+        // add entry to specified group
         let mime = entry.mime();
-        let category = category.or(shared.term_category.clone());
-        let index = shared.category(category.clone()).push(entry.clone());
+        let name = group.or(shared.term_group.clone());
+        let mut group = shared.group(name.clone());
+        let index = match index {
+            Some(idx) => {
+                group.insert(idx, Record::new(idx, entry.clone()));
+                idx
+            }
+            None => group.push(entry.clone()),
+        };
         // add to live clipboard
         copy(entry, primary)?;
         // log entry
-        let category = category.unwrap_or_else(|| "default".to_owned());
-        log::info!("new term entry (category={category} index={index}) {mime:?}");
+        let name = name.unwrap_or_else(|| "default".to_owned());
+        log::info!("copied term entry (group={name} index={index}) {mime:?}");
         Ok(())
     }
 
@@ -127,57 +140,69 @@ impl Daemon {
             Request::Copy {
                 entry,
                 primary,
-                category,
+                group,
+                index,
             } => {
-                self.copy(entry, primary, category)?;
+                self.copy(entry, primary, group, index)?;
                 Response::Ok
             }
             Request::Select {
                 index,
                 primary,
-                category,
+                group,
             } => {
-                let mut shared = self.shared.write().expect("rwlock write failed");
-                let mut category = shared.category(category);
-                match category.select(Some(index)) {
+                let record = {
+                    let mut shared = self.shared.write().expect("rwlock write failed");
+                    shared.group(group.clone()).select(Some(index))
+                };
+                match record {
                     Some(record) => {
-                        copy(record.entry, primary)?;
+                        self.copy(record.entry, primary, group, None)?;
                         Response::Ok
                     }
                     None => Response::error(format!("No Such Index {index:?})")),
                 }
             }
-            Request::List { length, category } => {
-                let mut shared = self.shared.write().expect("rwlock write failed");
-                let previews = shared.category(category).preview(length);
-                Response::Previews { previews }
+            Request::Groups => {
+                let shared = self.shared.write().expect("rwlock read failed");
+                let groups = shared.backend.groups();
+                Response::Groups { groups }
             }
-            Request::Find { index, category } => {
-                let mut shared = self.shared.write().expect("rwlock write failed");
-                match shared.category(category).find(index) {
+            Request::List { length, group } => {
+                let mut shared = self.shared.write().expect("rwlock read failed");
+                let previews = shared.group(group.clone()).preview(length);
+                match group.is_some() && group.clone().unwrap() != "default" && previews.is_empty()
+                {
+                    true => Response::error(format!("no such group: {group:?}")),
+                    false => Response::Previews { previews },
+                }
+            }
+            Request::Find { index, group } => {
+                let mut shared = self.shared.write().expect("rwlock read failed");
+                match shared.group(group).find(index) {
                     Some(record) => Response::Entry {
                         entry: record.entry,
                     },
                     None => Response::error(format!("No Such Index {index:?})")),
                 }
             }
-            Request::Delete { index, category } => {
+            Request::Delete { index, group } => {
                 let mut shared = self.shared.write().expect("rwlock write failed");
-                let mut category = shared.category(category);
-                match category.find(Some(index)) {
+                let mut group = shared.group(group);
+                match group.find(Some(index)) {
                     Some(_) => {
-                        category.delete(&index);
+                        group.delete(&index);
                         Response::Ok
                     }
                     None => Response::error(format!("No Such Index {index:?})")),
                 }
             }
-            Request::Wipe { wipe, category } => {
+            Request::Wipe { wipe, group } => {
                 let mut shared = self.shared.write().expect("rwlock write failed");
-                let mut category = shared.category(category);
+                let mut group = shared.group(group);
                 match wipe {
-                    Wipe::All => category.clear(),
-                    Wipe::Single { index } => category.delete(&index),
+                    Wipe::All => group.clear(),
+                    Wipe::Single { index } => group.delete(&index),
                 }
                 Response::Ok
             }
@@ -257,12 +282,12 @@ impl Daemon {
             let entry = Entry::from(msg);
             // determine if entry should be ignored
             let mut shared = self.shared.write().expect("rwlock write failed");
-            let category = shared.live_category.clone();
+            let group = shared.live_group.clone();
             if !(entry.is_empty() || shared.ignore.as_ref().map(|i| i == &entry).unwrap_or(false)) {
                 let mime = entry.mime();
-                let index = shared.category(category.clone()).push(entry);
-                let category = category.unwrap_or_else(|| "default".to_owned());
-                log::info!("new live entry (category={category} index={index}) {mime:?}");
+                let name = group.clone().unwrap_or_else(|| "default".to_owned());
+                let index = shared.group(group).push(entry);
+                log::info!("copied live entry (group={name} index={index}) {mime:?}");
             }
         }
     }

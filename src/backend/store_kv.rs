@@ -17,23 +17,27 @@ impl Kv {
 }
 
 impl Backend for Kv {
-    fn categories(&self) -> Vec<String> {
-        self.store.buckets()
+    fn groups(&self) -> Vec<String> {
+        self.store
+            .buckets()
+            .into_iter()
+            .filter(|g| g != "__sled__default")
+            .collect()
     }
-    fn category(&mut self, category: Category) -> Box<dyn BackendCategory> {
+    fn group(&mut self, group: Group) -> Box<dyn BackendGroup> {
         let bucket = self
             .store
-            .bucket(category)
+            .bucket(Some(group.unwrap_or("default")))
             .expect("kv failed to access bucket");
-        Box::new(KvCategory { bucket })
+        Box::new(KvGroup { bucket })
     }
 }
 
-struct KvCategory<'a> {
+struct KvGroup<'a> {
     bucket: kv::Bucket<'a, kv::Integer, kv::Json<Record>>,
 }
 
-impl<'a> BackendCategory for KvCategory<'a> {
+impl<'a> BackendGroup for KvGroup<'a> {
     fn get(&self, index: &usize) -> Option<Record> {
         self.bucket
             .get(&kv::Integer::from(*index))
@@ -44,11 +48,13 @@ impl<'a> BackendCategory for KvCategory<'a> {
         self.bucket
             .set(&kv::Integer::from(index), &kv::Json(record))
             .expect("kv bucket write failed");
+        self.bucket.flush().expect("kv bucket flush failed");
     }
     fn delete(&mut self, index: &usize) {
         self.bucket
             .remove(&kv::Integer::from(*index))
             .expect("kv bucket delete failed");
+        self.bucket.flush().expect("kv bucket flush failed");
     }
     fn iter(&self) -> Box<dyn Iterator<Item = Record>> {
         Box::new(
