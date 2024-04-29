@@ -19,6 +19,7 @@ use crate::client::{Client, ClientError};
 use crate::clipboard::Entry;
 use crate::config::Config;
 use crate::daemon::{Daemon, DaemonError};
+use crate::message::Wipe;
 use crate::table::*;
 
 static XDG_PREFIX: &'static str = "wclipd";
@@ -74,6 +75,9 @@ struct SelectArgs {
     /// Copy to Primary Selection
     #[arg(short, long, default_value_t = false)]
     primary: bool,
+    /// Group to Select from
+    #[clap(short, long)]
+    group: Option<String>,
 }
 
 /// Arguments for Paste Command
@@ -87,6 +91,9 @@ struct PasteArgs {
     /// Instead of pasting, list offered types
     #[arg(short, long, default_value_t = false)]
     list_types: bool,
+    /// Group to Paste from
+    #[clap(short, long)]
+    group: Option<String>,
 }
 
 /// Arguments for List Command
@@ -108,7 +115,13 @@ struct ListArgs {
 #[derive(Debug, Clone, Args)]
 struct DeleteArgs {
     /// Clipboard entry index within manager
-    entry_num: usize,
+    entry_num: Option<usize>,
+    /// Group to Delete From
+    #[clap(short, long)]
+    group: Option<String>,
+    /// Delete All Records (if enabled)
+    #[clap(short, long)]
+    clear: bool,
 }
 
 /// Arguments for Daemon Command
@@ -126,16 +139,21 @@ struct DaemonArgs {
 #[derive(Debug, Clone, Subcommand)]
 enum Command {
     /// Copy input to clipboard and manager
+    #[clap(visible_alias = "c")]
     Copy(CopyArgs),
     /// Recopy entry within manager
-    Select(SelectArgs),
+    #[clap(visible_alias = "r")]
+    ReCopy(SelectArgs),
     /// Paste entries tracked within manager
+    #[clap(visible_alias = "p")]
     Paste(PasteArgs),
     /// Check current status of daemon
     Check,
-    /// List entries within manager
-    List(ListArgs),
+    /// Show Clipboard Group entries within manager
+    #[clap(visible_alias = "s")]
+    Show(ListArgs),
     /// Delete entry within manager
+    #[clap(visible_alias = "d")]
     Delete(DeleteArgs),
     /// Run clipboard manager daemon
     Daemon(DaemonArgs),
@@ -227,7 +245,7 @@ impl Cli {
     fn select(&self, args: SelectArgs) -> Result<(), CliError> {
         let path = self.get_socket();
         let mut client = Client::new(path)?;
-        client.select(args.entry_num, args.primary, None)?;
+        client.select(args.entry_num, args.primary, args.group)?;
         Ok(())
     }
 
@@ -235,7 +253,7 @@ impl Cli {
     fn paste(&self, args: PasteArgs) -> Result<(), CliError> {
         let path = self.get_socket();
         let mut client = Client::new(path)?;
-        let entry = client.find(args.entry_num, None)?;
+        let entry = client.find(args.entry_num, args.group)?;
         if args.list_types {
             for mime in entry.mime {
                 println!("{mime}");
@@ -278,10 +296,10 @@ impl Cli {
             })?;
         }
         let now = SystemTime::now();
-        let mut it = args.groups.into_iter().peekable();
-        while let Some(group) = it.next() {
+        for (i, group) in args.groups.into_iter().enumerate() {
             // generate preview into table structure
-            let previews = client.list(config.list.preview_length, Some(group.clone()))?;
+            let mut previews = client.list(config.list.preview_length, Some(group.clone()))?;
+            previews.sort_by_key(|p| p.last_used);
             let data: Table = previews
                 .into_iter()
                 .map(|p| {
@@ -291,14 +309,18 @@ impl Cli {
                     vec![format!("{}", p.index), p.preview, human]
                 })
                 .collect();
+            // skip empty record-sets
+            if data.is_empty() {
+                continue;
+            }
+            // add extra space between tables
+            if i > 0 {
+                println!("");
+            }
             // build ascii table
             let mut table = AsciiTable::new(group, Style::Fancy);
             table.align_column(0, Align::Right);
             table.print(data);
-            // add extra space between tables
-            if it.peek().is_some() {
-                println!("");
-            }
         }
         Ok(())
     }
@@ -307,8 +329,23 @@ impl Cli {
     fn delete(&self, args: DeleteArgs) -> Result<(), CliError> {
         let path = self.get_socket();
         let mut client = Client::new(path)?;
-        client.delete(args.entry_num, None)?;
-
+        if args.clear {
+            let name = args.group.clone().unwrap_or_else(|| "default".to_owned());
+            log::info!("clearing all records for group: {name:?}");
+            client.wipe(Wipe::All, args.group)?;
+            return Ok(());
+        }
+        let index = match args.entry_num {
+            Some(index) => index,
+            None => client
+                .list(0, args.group.clone())?
+                .into_iter()
+                .map(|p| p.index)
+                .max()
+                .unwrap_or(0),
+        };
+        log::info!("deleting index {index} for group {:?}", args.group);
+        client.wipe(Wipe::Single { index }, args.group)?;
         Ok(())
     }
 
@@ -337,10 +374,10 @@ fn main() -> Result<(), CliError> {
     let config = cli.load_config()?;
     match cli.command.clone() {
         Command::Copy(args) => cli.copy(args),
-        Command::Select(args) => cli.select(args),
+        Command::ReCopy(args) => cli.select(args),
         Command::Paste(args) => cli.paste(args),
         Command::Check => cli.check(),
-        Command::List(args) => cli.list(config, args),
+        Command::Show(args) => cli.list(config, args),
         Command::Delete(args) => cli.delete(args),
         Command::Daemon(args) => cli.daemon(config, args),
     }

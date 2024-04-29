@@ -68,6 +68,7 @@ impl Shared {
 pub struct Daemon {
     kill: bool,
     live: bool,
+    recopy: bool,
     addr: PathBuf,
     shared: Arc<RwLock<Shared>>,
     start_wg: Arc<Barrier>,
@@ -81,6 +82,7 @@ impl Daemon {
         Ok(Self {
             kill: cfg.kill,
             live: cfg.capture_live,
+            recopy: cfg.recopy_live,
             addr: path,
             shared: Arc::new(RwLock::new(Shared::new(cfg))),
             start_wg: Arc::new(Barrier::new(waiting)),
@@ -171,11 +173,7 @@ impl Daemon {
             Request::List { length, group } => {
                 let mut shared = self.shared.write().expect("rwlock read failed");
                 let previews = shared.group(group.clone()).preview(length);
-                match group.is_some() && group.clone().unwrap() != "default" && previews.is_empty()
-                {
-                    true => Response::error(format!("no such group: {group:?}")),
-                    false => Response::Previews { previews },
-                }
+                Response::Previews { previews }
             }
             Request::Find { index, group } => {
                 let mut shared = self.shared.write().expect("rwlock read failed");
@@ -186,25 +184,22 @@ impl Daemon {
                     None => Response::error(format!("No Such Index {index:?})")),
                 }
             }
-            Request::Delete { index, group } => {
-                let mut shared = self.shared.write().expect("rwlock write failed");
-                let mut group = shared.group(group);
-                match group.find(Some(index)) {
-                    Some(_) => {
-                        group.delete(&index);
-                        Response::Ok
-                    }
-                    None => Response::error(format!("No Such Index {index:?})")),
-                }
-            }
             Request::Wipe { wipe, group } => {
                 let mut shared = self.shared.write().expect("rwlock write failed");
                 let mut group = shared.group(group);
                 match wipe {
-                    Wipe::All => group.clear(),
-                    Wipe::Single { index } => group.delete(&index),
+                    Wipe::All => {
+                        group.clear();
+                        Response::Ok
+                    }
+                    Wipe::Single { index } => match group.find(Some(index)) {
+                        Some(_) => {
+                            group.delete(&index);
+                            Response::Ok
+                        }
+                        None => Response::error(format!("No Such Index {index:?})")),
+                    },
                 }
-                Response::Ok
             }
         })
     }
@@ -283,11 +278,20 @@ impl Daemon {
             // determine if entry should be ignored
             let mut shared = self.shared.write().expect("rwlock write failed");
             let group = shared.live_group.clone();
-            if !(entry.is_empty() || shared.ignore.as_ref().map(|i| i == &entry).unwrap_or(false)) {
-                let mime = entry.mime();
-                let name = group.clone().unwrap_or_else(|| "default".to_owned());
-                let index = shared.group(group).push(entry);
-                log::info!("copied live entry (group={name} index={index}) {mime:?}");
+            if entry.is_empty() || shared.ignore.as_ref().map(|i| i == &entry).unwrap_or(false) {
+                continue;
+            }
+            // copy into manager
+            let mime = entry.mime();
+            let name = group.clone().unwrap_or_else(|| "default".to_owned());
+            let index = shared.group(group).push(entry.clone());
+            log::info!("copied live entry (group={name} index={index}) {mime:?}");
+            // recopy clipboard if enabled
+            if self.recopy {
+                shared.ignore = Some(entry.clone());
+                if let Err(err) = copy(entry, false) {
+                    log::error!("failed to re-copy clipboard: {err:?}");
+                };
             }
         }
     }
@@ -316,6 +320,7 @@ impl Clone for Daemon {
         Self {
             kill: self.kill,
             live: self.live,
+            recopy: self.recopy,
             addr: self.addr.clone(),
             shared: Arc::clone(&self.shared),
             start_wg: Arc::clone(&self.start_wg),

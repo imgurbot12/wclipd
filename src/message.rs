@@ -45,8 +45,6 @@ pub enum Request {
     },
     /// View Clipboard History
     List { length: usize, group: Grp },
-    /// Delete an Existing Clipboard Entry
-    Delete { index: usize, group: Grp },
     /// Find Specific History Entry
     Find { index: Option<usize>, group: Grp },
     /// Delete Clipboard Entries

@@ -105,8 +105,9 @@ impl Entry {
             .filter(|s| !s.is_empty())
             .collect::<Vec<&str>>()
             .join(" ");
-        if s.len() >= max_width {
-            s.truncate(max_width - 3);
+        if s.len() > max_width {
+            let max = std::cmp::max(max_width, 3);
+            s.truncate(max - 3);
             s = format!("{s}...");
         }
         s

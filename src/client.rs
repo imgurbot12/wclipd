@@ -70,6 +70,11 @@ impl Client {
     }
 
     #[inline]
+    pub fn wipe(&mut self, wipe: Wipe, group: Grp) -> Result<(), ClientError> {
+        self.send_ok(Request::Wipe { wipe, group })
+    }
+
+    #[inline]
     pub fn copy(
         &mut self,
         entry: Entry,
@@ -92,11 +97,6 @@ impl Client {
             primary,
             group,
         })
-    }
-
-    #[inline]
-    pub fn delete(&mut self, index: usize, group: Grp) -> Result<(), ClientError> {
-        self.send_ok(Request::Delete { index, group })
     }
 
     pub fn groups(&mut self) -> Result<Vec<String>, ClientError> {

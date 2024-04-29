@@ -7,13 +7,23 @@ use crate::backend::{BackendConfig, Expiration, Storage};
 use crate::message::Grp;
 use crate::table::{Align, Style};
 
+fn _true() -> bool {
+    true
+}
+
 #[derive(Debug, Deserialize)]
 pub struct DaemonConfig {
     #[serde(skip)]
     pub kill: bool,
+    #[serde(default = "_true")]
     pub capture_live: bool,
+    #[serde(default)]
+    pub recopy_live: bool,
+    #[serde(default)]
     pub backends: BackendConfig,
+    #[serde(default)]
     pub term_backend: Grp,
+    #[serde(default)]
     pub live_backend: Grp,
 }
 
@@ -22,6 +32,7 @@ impl Default for DaemonConfig {
         Self {
             kill: false,
             capture_live: true,
+            recopy_live: false,
             backends: BackendConfig::new(),
             term_backend: None,
             live_backend: None,

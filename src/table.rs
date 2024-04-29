@@ -150,7 +150,7 @@ impl AsciiTable {
             .map(|r| r.len())
             .max()
             .expect("empty table rows");
-        let col_sizes: Vec<usize> = (0..num_columns)
+        let mut col_sizes: Vec<usize> = (0..num_columns)
             .map(|index| {
                 table
                     .iter()
@@ -159,11 +159,14 @@ impl AsciiTable {
                     .expect("empty table columns")
             })
             .collect();
-        // draw top-row of table
+        // get basics prepared for drawing
         let mut lines = vec![];
         let edge_row: Row = col_sizes.iter().map(|_| Entry::default()).collect();
+        // insert title into middle row, draw top-row of table
         let mut start_row = edge_row.clone();
-        start_row[col_sizes.len() / 2] = format!(" {} ", self.title);
+        let index = col_sizes.len() / 2;
+        start_row[index] = format!(" {} ", self.title);
+        col_sizes[index] = std::cmp::max(col_sizes[index], self.title.len() + 2);
         lines.push(self.draw_row(
             start_row,
             self.style[TABLE_EDGE],
