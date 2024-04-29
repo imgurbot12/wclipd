@@ -319,7 +319,9 @@ impl Cli {
             }
             // build ascii table
             let mut table = AsciiTable::new(group, config.list.table.style.clone());
-            table.align_column(0, Align::Right);
+            table.align_column(0, config.list.table.index_align.clone());
+            table.align_column(1, config.list.table.preview_align.clone());
+            table.align_column(2, config.list.table.time_align.clone());
             table.print(data);
         }
         Ok(())
