@@ -32,7 +32,7 @@ impl Default for DaemonConfig {
         Self {
             kill: false,
             capture_live: true,
-            recopy_live: false,
+            recopy_live: true,
             backends: BackendConfig::new(),
             term_backend: None,
             live_backend: None,

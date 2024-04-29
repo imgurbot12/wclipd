@@ -1,5 +1,22 @@
 ---
+# show-list settings
+list:
+  default_group: 'default'
+  preview_length: 60
+  table:
+    style: 'fancy'
+    index_align: 'right'
+    preview_align: 'left'
+    time_align: 'left'
+
+# daemon configuration
 daemon:
-  backend:     'memory'
-  lifetime:    'reboot'
-  max_entries: null
+  capture_live: true
+  recopy_live: true
+  term_backend: 'default'
+  live_backend: 'default'
+  backends:
+    default:
+      storage: 'disk'
+      expiration: 'reboot'
+      max_entries: null

@@ -318,7 +318,7 @@ impl Cli {
                 println!("");
             }
             // build ascii table
-            let mut table = AsciiTable::new(group, Style::Fancy);
+            let mut table = AsciiTable::new(group, config.list.table.style.clone());
             table.align_column(0, Align::Right);
             table.print(data);
         }

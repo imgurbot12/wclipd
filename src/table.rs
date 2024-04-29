@@ -35,7 +35,7 @@ impl FromStr for Style {
     type Err = String;
     fn from_str(s: &str) -> Result<Self, Self::Err> {
         match s {
-            "standard" => Ok(Self::Standard),
+            "standard" | "simple" => Ok(Self::Standard),
             "fancy" => Ok(Self::Fancy),
             _ => Err(format!("invalid style: {s:?}")),
         }
