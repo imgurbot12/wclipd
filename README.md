@@ -61,7 +61,7 @@ $ wclipd paste
 ```
 
 View a History of Available Snippets. Previews are listed
-from most-recent copy to least.
+from oldest to most-recent copy with timestamps.
 
 ```bash
 $ wclipd copy 'hello'
