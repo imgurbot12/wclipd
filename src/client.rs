@@ -107,10 +107,14 @@ impl Client {
         Err(ClientError::Unexpected(response))
     }
 
-    pub fn find(&mut self, index: Option<usize>, group: Grp) -> Result<Entry, ClientError> {
+    pub fn find(
+        &mut self,
+        index: Option<usize>,
+        group: Grp,
+    ) -> Result<(Entry, usize), ClientError> {
         let response = self.send(Request::Find { index, group })?;
-        if let Response::Entry { entry } = response {
-            return Ok(entry);
+        if let Response::Entry { entry, index } = response {
+            return Ok((entry, index));
         }
         Err(ClientError::Unexpected(response))
     }

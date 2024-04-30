@@ -16,10 +16,11 @@ mod mime;
 mod table;
 
 use crate::client::{Client, ClientError};
-use crate::clipboard::Entry;
+use crate::clipboard::{ClipBody, Entry};
 use crate::config::Config;
 use crate::daemon::{Daemon, DaemonError};
 use crate::message::Wipe;
+use crate::mime::is_text;
 use crate::table::*;
 
 static XDG_PREFIX: &'static str = "wclipd";
@@ -40,6 +41,8 @@ pub enum CliError {
     DaemonError(#[from] DaemonError),
     #[error("Conflict Error")]
     ConflictError(String),
+    #[error("Edit Error")]
+    EditError(String),
 }
 
 /// Arguments for Copy Command
@@ -72,7 +75,7 @@ struct CopyArgs {
 struct SelectArgs {
     /// Clipboard entry index within manager
     entry_num: usize,
-    /// Copy to Primary Selection
+    /// Copy to primary-selection
     #[arg(short, long, default_value_t = false)]
     primary: bool,
     /// Group to Select from
@@ -92,6 +95,19 @@ struct PasteArgs {
     #[arg(short, long, default_value_t = false)]
     list_types: bool,
     /// Group to Paste from
+    #[clap(short, long)]
+    group: Option<String>,
+}
+
+/// Arguments for Select Command
+#[derive(Debug, Clone, Args)]
+struct EditArgs {
+    /// Clipboard entry index within manager
+    entry_num: Option<usize>,
+    /// Copy to primary-selection after edit
+    #[arg(short, long, default_value_t = false)]
+    primary: bool,
+    /// Group to Edit from
     #[clap(short, long)]
     group: Option<String>,
 }
@@ -147,9 +163,12 @@ enum Command {
     /// Paste entries tracked within manager
     #[clap(visible_alias = "p")]
     Paste(PasteArgs),
+    /// Edit an existing entry
+    #[clap(visible_alias = "e")]
+    Edit(EditArgs),
     /// Check current status of daemon
     Check,
-    /// Show Clipboard Group entries within manager
+    /// Show clipboard group entries within manager
     #[clap(visible_alias = "s")]
     Show(ListArgs),
     /// Delete entry within manager
@@ -253,7 +272,7 @@ impl Cli {
     fn paste(&self, args: PasteArgs) -> Result<(), CliError> {
         let path = self.get_socket();
         let mut client = Client::new(path)?;
-        let entry = client.find(args.entry_num, args.group)?;
+        let (entry, _) = client.find(args.entry_num, args.group)?;
         if args.list_types {
             for mime in entry.mime {
                 println!("{mime}");
@@ -265,6 +284,25 @@ impl Cli {
         if !args.no_newline {
             out.write(&['\n' as u8])?;
         }
+        Ok(())
+    }
+
+    /// Edit an Existing Clipboard Entry
+    fn edit(&self, args: EditArgs) -> Result<(), CliError> {
+        let path = self.get_socket();
+        let mut client = Client::new(path)?;
+        // retrieve entry and confirm entry is text
+        let (mut entry, index) = client.find(args.entry_num, args.group.clone())?;
+        if !entry.mime.iter().any(|m| is_text(m)) {
+            return Err(CliError::EditError("Can Only Edit Text".to_owned()));
+        }
+        // edit contents and move back to text
+        let data = edit::edit_bytes(entry.as_bytes())?;
+        let text = String::from_utf8(data)
+            .map_err(|e| CliError::EditError(format!("failed to read clip: {e:?}")))?;
+        entry.body = ClipBody::Text(text);
+        // resubmit entry to clipboard
+        client.copy(entry, args.primary, args.group, Some(index))?;
         Ok(())
     }
 
@@ -378,6 +416,7 @@ fn main() -> Result<(), CliError> {
         Command::Copy(args) => cli.copy(args),
         Command::ReCopy(args) => cli.select(args),
         Command::Paste(args) => cli.paste(args),
+        Command::Edit(args) => cli.edit(args),
         Command::Check => cli.check(),
         Command::Show(args) => cli.list(config, args),
         Command::Delete(args) => cli.delete(args),

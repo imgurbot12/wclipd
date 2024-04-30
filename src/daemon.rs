@@ -180,6 +180,7 @@ impl Daemon {
                 match shared.group(group).find(index) {
                     Some(record) => Response::Entry {
                         entry: record.entry,
+                        index: record.index,
                     },
                     None => Response::error(format!("No Such Index {index:?})")),
                 }

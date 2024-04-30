@@ -62,7 +62,7 @@ pub enum Response {
     /// List of Avaialble Groups
     Groups { groups: Vec<String> },
     /// Returned Clipboard Entry
-    Entry { entry: Entry },
+    Entry { entry: Entry, index: usize },
     /// Clipboard Previews
     Previews { previews: Vec<Preview> },
 }
