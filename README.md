@@ -11,6 +11,7 @@ A Customizable Clipboard Manager for Wayland
   - Blazingly Fast 🔥
   - Simple and Easy to Use
   - Unifies Clipboard Tooling into One Binary
+  - Manage and Categorize Your Snippets
   - Multiple and Customizable Storage Options
   - Exact Control on How Long your Copies last
 
@@ -65,15 +66,17 @@ from most-recent copy to least.
 ```bash
 $ wclipd copy 'hello'
 $ wclipd copy 'world!'
-$ wclipd list
-2.      world!
-1.      hello
+$ wclipd show
+┌───┬─ default ─┬────┐
+│ 0 │ hello     │ 6s │
+│ 1 │ world!    │ 1s │
+└───┴───────────┴────┘
 ```
 
 Paste Older Copy Snippets using their Index
 
 ```bash
-$ wclipd paste 1
+$ wclipd paste 0
 hello
 ```
 
@@ -82,7 +85,7 @@ hello
 Customize Wclipd Storage and Behavior using the available CLI flags
 or via its [configuration file](./default-config.yaml).
 
-#### Examples
+#### Advanced Usage
 
 Copy/Paste Images
 
@@ -91,9 +94,40 @@ $ cat <your-image.jpg> | wclipd copy
 $ wclipd paste | feh -
 ```
 
-Restart/Reactivate Daemon (and killing the old one)
+Re-Copy an Old Entry to Active Clipboard
 
 ```bash
-$ wclipd daemon -k -b memory -l login
+$ wclipd re-copy 0
 ```
 
+Delete an Entry
+
+```bash
+$ wclipd delete 0
+$ wclipd s
+┌───┬─ default ─┬────┐
+│ 1 │ world!    │ 5s │
+└───┴───────────┴────┘
+```
+
+Categorize Your Entries into Groups On Input
+
+```bash
+$ wclipd copp ':)' --group smiles
+$ wclipd s smiles
+┌───┬─ smiles ─┬────┐
+│ 0 │ :)       │ 3s │
+└───┴──────────┴────┘
+$ wclipd p -g smiles
+:)
+```
+
+View Existing Groups
+
+```bash
+$ wclipd list-groups
+┌─────────┬─────────┐
+│ smiles  │ 57s     │
+│ default │ 41s     │
+└─────────┴─────────┘
+```
