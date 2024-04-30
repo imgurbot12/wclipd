@@ -98,6 +98,8 @@ Re-Copy an Old Entry to Active Clipboard
 
 ```bash
 $ wclipd re-copy 0
+$ wclipd p
+hello
 ```
 
 Delete an Entry
