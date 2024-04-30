@@ -101,14 +101,14 @@ fn align(entry: Entry, size: usize, fill: &str, align: &Align) -> String {
 
 /// Ascii Table Generator Utility
 pub struct AsciiTable {
-    title: String,
+    title: Option<String>,
     style: StyleArray,
     align: HashMap<usize, Align>,
 }
 
 impl AsciiTable {
     /// Spawn New Ascii Table Generator
-    pub fn new(title: String, style: Style) -> Self {
+    pub fn new(title: Option<String>, style: Style) -> Self {
         Self {
             title,
             style: style.array(),
@@ -164,9 +164,11 @@ impl AsciiTable {
         let edge_row: Row = col_sizes.iter().map(|_| Entry::default()).collect();
         // insert title into middle row, draw top-row of table
         let mut start_row = edge_row.clone();
-        let index = col_sizes.len() / 2;
-        start_row[index] = format!(" {} ", self.title);
-        col_sizes[index] = std::cmp::max(col_sizes[index], self.title.len() + 2);
+        if let Some(title) = self.title.as_ref() {
+            let index = col_sizes.len() / 2;
+            start_row[index] = format!(" {} ", title);
+            col_sizes[index] = std::cmp::max(col_sizes[index], title.len() + 2);
+        }
         lines.push(self.draw_row(
             start_row,
             self.style[TABLE_EDGE],

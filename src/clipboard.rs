@@ -59,8 +59,19 @@ pub struct Entry {
 impl Entry {
     /// Generate new Text Clipboard Entry
     pub fn text(content: String, mime: Option<String>) -> Self {
+        let mut mimes = vec![
+            "text/plain".to_owned(),
+            "TEXT".to_owned(),
+            "UTF8_STRING".to_owned(),
+            "text/plain;charset=utf-8".to_owned(),
+        ];
+        if let Some(mime) = mime {
+            if !mimes.contains(&mime) {
+                mimes.insert(0, mime);
+            }
+        }
         Self {
-            mime: vec![mime.unwrap_or_else(|| "text/plain".to_owned())],
+            mime: mimes,
             body: ClipBody::Text(content),
         }
     }
@@ -81,6 +92,13 @@ impl Entry {
     #[inline]
     pub fn as_bytes(&self) -> &[u8] {
         self.body.as_bytes()
+    }
+    /// Check if Clipboard Body is Text
+    pub fn is_text(&self) -> bool {
+        match self.body {
+            ClipBody::Text(_) => true,
+            _ => self.mime.iter().any(|m| is_text(m)),
+        }
     }
     /// Get First MimeType in Available MimeTypes
     #[inline]

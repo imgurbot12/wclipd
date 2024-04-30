@@ -5,6 +5,7 @@ use std::time::{Duration, SystemTime};
 
 use clap::{Args, Parser, Subcommand};
 use thiserror::Error;
+use wayland_clipboard_listener::{WlClipboardListenerError, WlClipboardPasteStream, WlListenType};
 
 mod backend;
 mod client;
@@ -20,7 +21,6 @@ use crate::clipboard::{ClipBody, Entry};
 use crate::config::Config;
 use crate::daemon::{Daemon, DaemonError};
 use crate::message::Wipe;
-use crate::mime::is_text;
 use crate::table::*;
 
 static XDG_PREFIX: &'static str = "wclipd";
@@ -39,10 +39,14 @@ pub enum CliError {
     ClientError(#[from] ClientError),
     #[error("Daemon Error")]
     DaemonError(#[from] DaemonError),
+    #[error("Clipboard Error")]
+    ClipboardError(#[from] WlClipboardListenerError),
     #[error("Conflict Error")]
     ConflictError(String),
     #[error("Edit Error")]
     EditError(String),
+    #[error("Warning")]
+    Warning(String),
 }
 
 /// Arguments for Copy Command
@@ -89,11 +93,17 @@ struct PasteArgs {
     /// Clipboard entry index within manager
     entry_num: Option<usize>,
     /// Do not append a newline character
-    #[arg(short, long, default_value_t = false)]
+    #[arg(short, long)]
     no_newline: bool,
     /// Instead of pasting, list offered types
-    #[arg(short, long, default_value_t = false)]
+    #[arg(short, long)]
     list_types: bool,
+    /// Paste from active clipboard instead of manager
+    #[arg(short, long)]
+    active: bool,
+    /// Only paste text Content
+    #[arg(short, long)]
+    text_only: bool,
     /// Group to Paste from
     #[clap(short, long)]
     group: Option<String>,
@@ -112,9 +122,17 @@ struct EditArgs {
     group: Option<String>,
 }
 
-/// Arguments for List Command
+/// Arguments for List-Groups Command
 #[derive(Debug, Clone, Args)]
 struct ListArgs {
+    /// Override Table Style
+    #[clap(short = 's', long)]
+    table_style: Option<Style>,
+}
+
+/// Arguments for Show Command
+#[derive(Debug, Clone, Args)]
+struct ShowArgs {
     /// List of Groups to List
     groups: Vec<String>,
     /// Clipboard Preview Max-Length
@@ -168,9 +186,12 @@ enum Command {
     Edit(EditArgs),
     /// Check current status of daemon
     Check,
+    /// List clipboard groups
+    #[clap(visible_alias = "l")]
+    ListGroups(ListArgs),
     /// Show clipboard group entries within manager
     #[clap(visible_alias = "s")]
-    Show(ListArgs),
+    Show(ShowArgs),
     /// Delete entry within manager
     #[clap(visible_alias = "d")]
     Delete(DeleteArgs),
@@ -178,7 +199,7 @@ enum Command {
     Daemon(DaemonArgs),
 }
 
-/// Cli Application Flags and Command Configuration
+/// Supercharge Waylands Clipboard!
 #[derive(Debug, Clone, Parser)]
 #[command(author, version, about, long_about = None)]
 #[command(propagate_version = true)]
@@ -227,6 +248,13 @@ impl Cli {
         PathBuf::from(shellexpand::tilde(&path).to_string())
     }
 
+    ///Convert Timestamp to HumanTime
+    fn human_time(&self, ts: SystemTime, now: &SystemTime) -> String {
+        let since = now.duration_since(ts).unwrap_or_default();
+        let since = Duration::from_secs(since.as_secs());
+        humantime::format_duration(since).to_string()
+    }
+
     /// Copy Command Handler
     fn copy(&self, args: CopyArgs) -> Result<(), CliError> {
         let path = self.get_socket();
@@ -272,13 +300,33 @@ impl Cli {
     fn paste(&self, args: PasteArgs) -> Result<(), CliError> {
         let path = self.get_socket();
         let mut client = Client::new(path)?;
-        let (entry, _) = client.find(args.entry_num, args.group)?;
+        // retrieve entry from active clipboard or manager
+        let entry = if args.active {
+            let mut stream = WlClipboardPasteStream::init(WlListenType::ListenOnCopy)?;
+            let Some(message) = stream.get_clipboard()? else {
+                return Err(CliError::Warning("no content in clipboard".to_owned()));
+            };
+            Entry::from(message)
+        } else {
+            let (entry, _) = client.find(args.entry_num, args.group)?;
+            entry
+        };
+        // return warning if empty
+        if entry.is_empty() {
+            return Err(CliError::Warning("no content in clipboard".to_owned()));
+        }
+        // print entry mime-types instead if `list-types` enabled
         if args.list_types {
             for mime in entry.mime {
                 println!("{mime}");
             }
             return Ok(());
         }
+        // avoid printing if not-text and `text-only` enabled
+        if args.text_only && !entry.is_text() {
+            return Err(CliError::Warning("not a text snippet".to_owned()));
+        }
+        // write output to stdout
         let mut out = stdout();
         out.write(entry.as_bytes())?;
         if !args.no_newline {
@@ -293,7 +341,7 @@ impl Cli {
         let mut client = Client::new(path)?;
         // retrieve entry and confirm entry is text
         let (mut entry, index) = client.find(args.entry_num, args.group.clone())?;
-        if !entry.mime.iter().any(|m| is_text(m)) {
+        if !entry.is_text() {
             return Err(CliError::EditError("Can Only Edit Text".to_owned()));
         }
         // edit contents and move back to text
@@ -317,8 +365,39 @@ impl Cli {
         std::process::exit(1)
     }
 
-    /// List Clipboard Entry Previews Command Handler
-    fn list(&self, mut config: Config, mut args: ListArgs) -> Result<(), CliError> {
+    /// List Populated Groups within Backend
+    fn list_groups(&self, mut config: Config, args: ListArgs) -> Result<(), CliError> {
+        // override settings
+        config.list.table.style = args.table_style.unwrap_or(config.list.table.style);
+        // connect to client and list non-empty groups
+        let path = self.get_socket();
+        let mut client = Client::new(path)?;
+        let mut groups: Vec<(String, SystemTime)> = client
+            .groups()?
+            .into_iter()
+            .filter_map(|group| {
+                let previews = client.list(0, Some(group.clone())).ok()?;
+                let latest = previews.iter().map(|p| p.last_used).max();
+                match previews.is_empty() {
+                    true => None,
+                    false => Some((group, latest.unwrap())),
+                }
+            })
+            .collect();
+        groups.sort_by_key(|(_, time)| time.clone());
+        // print data table
+        let now = SystemTime::now();
+        let data = groups
+            .into_iter()
+            .map(|(g, last)| vec![g, self.human_time(last, &now)])
+            .collect();
+        let table = AsciiTable::new(None, config.list.table.style);
+        table.print(data);
+        Ok(())
+    }
+
+    /// Show Clipboard Entry Previews Command Handler
+    fn show(&self, mut config: Config, mut args: ShowArgs) -> Result<(), CliError> {
         // override daemon cli arguments
         config.list.preview_length = args.length.unwrap_or(config.list.preview_length);
         config.list.table.style = args.table_style.unwrap_or(config.list.table.style);
@@ -334,16 +413,15 @@ impl Cli {
             })?;
         }
         let now = SystemTime::now();
-        for (i, group) in args.groups.into_iter().enumerate() {
+        let mut printed = 0;
+        for group in args.groups {
             // generate preview into table structure
             let mut previews = client.list(config.list.preview_length, Some(group.clone()))?;
             previews.sort_by_key(|p| p.last_used);
             let data: Table = previews
                 .into_iter()
                 .map(|p| {
-                    let since = now.duration_since(p.last_used).unwrap_or_default();
-                    let since = Duration::from_secs(since.as_secs());
-                    let human = humantime::format_duration(since).to_string();
+                    let human = self.human_time(p.last_used.clone(), &now);
                     vec![format!("{}", p.index), p.preview, human]
                 })
                 .collect();
@@ -352,11 +430,12 @@ impl Cli {
                 continue;
             }
             // add extra space between tables
-            if i > 0 {
+            printed += 1;
+            if printed > 1 {
                 println!("");
             }
             // build ascii table
-            let mut table = AsciiTable::new(group, config.list.table.style.clone());
+            let mut table = AsciiTable::new(Some(group), config.list.table.style.clone());
             table.align_column(0, config.list.table.index_align.clone());
             table.align_column(1, config.list.table.preview_align.clone());
             table.align_column(2, config.list.table.time_align.clone());
@@ -402,14 +481,8 @@ impl Cli {
     }
 }
 
-fn main() -> Result<(), CliError> {
-    // enable log and set default level
-    if std::env::var("RUST_LOG").is_err() {
-        std::env::set_var("RUST_LOG", "info");
-    }
-    env_logger::init();
-
-    // handle cli
+/// run and operate cli
+fn process_cli() -> Result<(), CliError> {
     let mut cli = Cli::parse();
     let config = cli.load_config()?;
     match cli.command.clone() {
@@ -418,8 +491,28 @@ fn main() -> Result<(), CliError> {
         Command::Paste(args) => cli.paste(args),
         Command::Edit(args) => cli.edit(args),
         Command::Check => cli.check(),
-        Command::Show(args) => cli.list(config, args),
+        Command::ListGroups(args) => cli.list_groups(config, args),
+        Command::Show(args) => cli.show(config, args),
         Command::Delete(args) => cli.delete(args),
         Command::Daemon(args) => cli.daemon(config, args),
+    }
+}
+
+fn main() {
+    // enable log and set default level
+    if std::env::var("RUST_LOG").is_err() {
+        std::env::set_var("RUST_LOG", "info");
+    }
+    env_logger::init();
+
+    // run cli and send nice output based on response
+    if let Err(err) = process_cli() {
+        match err {
+            CliError::Warning(warn) => eprintln!("Warning, {warn}"),
+            CliError::EditError(err) => eprintln!("Failed to edit clipboard, {err}"),
+            CliError::ConflictError(err) => eprintln!("Conflicting arguments, {err}"),
+            err => eprintln!("Unexpected Failure! Error: {err:?}"),
+        };
+        std::process::exit(1);
     }
 }
