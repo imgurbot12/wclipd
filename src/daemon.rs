@@ -7,9 +7,9 @@ use std::sync::{Arc, Barrier, RwLock};
 use std::thread;
 
 use thiserror::Error;
-use wayland_clipboard_listener::WlClipboardPasteStream;
-use wayland_clipboard_listener::WlListenType;
-use wayland_clipboard_listener::{WlClipboardCopyStream, WlClipboardListenerError};
+use wayland_clipboard_listener::{WlClipboardListenerError, WlClipboardPasteStream, WlListenType};
+
+use wl_clipboard_rs::copy::{ClipboardType, MimeType, Options, Source};
 
 use crate::backend::{Backend, BackendGroup, Manager, Record};
 use crate::client::Client;
@@ -18,12 +18,22 @@ use crate::config::DaemonConfig;
 use crate::message::*;
 
 fn copy(entry: Entry, primary: bool) -> Result<(), DaemonError> {
-    let mut stream = WlClipboardCopyStream::init()?;
+    let clipboard = if primary {
+        ClipboardType::Primary
+    } else {
+        ClipboardType::Regular
+    };
     thread::spawn(move || {
-        let context = entry.body.as_bytes().to_vec();
-        let mimetypes = entry.mime.iter().map(|s| s.as_str()).collect();
-        stream
-            .copy_to_clipboard(context, mimetypes, primary)
+        let content = entry.body.as_bytes();
+        let mime = if entry.is_text() {
+            MimeType::Text
+        } else {
+            MimeType::Specific(entry.mime())
+        };
+        let mut options = Options::new();
+        options.clipboard(clipboard);
+        options
+            .copy(Source::Bytes(content.into()), mime)
             .expect("clipboard copy failed");
     });
     Ok(())
