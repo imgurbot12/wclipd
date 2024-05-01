@@ -372,7 +372,7 @@ impl Cli {
         // connect to client and list non-empty groups
         let path = self.get_socket();
         let mut client = Client::new(path)?;
-        let mut groups: Vec<(String, SystemTime)> = client
+        let mut groups: Vec<(String, usize, SystemTime)> = client
             .groups()?
             .into_iter()
             .filter_map(|group| {
@@ -380,16 +380,16 @@ impl Cli {
                 let latest = previews.iter().map(|p| p.last_used).max();
                 match previews.is_empty() {
                     true => None,
-                    false => Some((group, latest.unwrap())),
+                    false => Some((group, previews.len(), latest.unwrap())),
                 }
             })
             .collect();
-        groups.sort_by_key(|(_, time)| time.clone());
+        groups.sort_by_key(|(_, _, time)| time.clone());
         // print data table
         let now = SystemTime::now();
         let data = groups
             .into_iter()
-            .map(|(g, last)| vec![g, self.human_time(last, &now)])
+            .map(|(g, n, last)| vec![format!("{g} ({n})"), self.human_time(last, &now)])
             .collect();
         let table = AsciiTable::new(None, config.list.table.style);
         table.print(data);
@@ -448,8 +448,8 @@ impl Cli {
     fn delete(&self, args: DeleteArgs) -> Result<(), CliError> {
         let path = self.get_socket();
         let mut client = Client::new(path)?;
+        let name = args.group.clone().unwrap_or_else(|| "default".to_owned());
         if args.clear {
-            let name = args.group.clone().unwrap_or_else(|| "default".to_owned());
             log::info!("clearing all records for group: {name:?}");
             client.wipe(Wipe::All, args.group)?;
             return Ok(());
@@ -463,7 +463,7 @@ impl Cli {
                 .max()
                 .unwrap_or(0),
         };
-        log::info!("deleting index {index} for group {:?}", args.group);
+        log::info!("deleting index {index} for group {name:?}");
         client.wipe(Wipe::Single { index }, args.group)?;
         Ok(())
     }

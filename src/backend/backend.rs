@@ -39,6 +39,7 @@ impl Record {
 pub struct CleanCfg {
     pub fixed: Option<SystemTime>,
     pub dynamic: Option<SystemTime>,
+    pub min_entries: usize,
     pub max_entries: Option<usize>,
 }
 
@@ -55,6 +56,7 @@ impl From<&GroupConfig> for CleanCfg {
         Self {
             fixed: value.expiration.fixed_expiration(),
             dynamic: value.expiration.dynanmic_expriration(),
+            min_entries: value.min_entries,
             max_entries: value.max_entries,
         }
     }
@@ -77,7 +79,7 @@ impl dyn BackendGroup {
     /// Return Index of Record if Entry Exists
     pub fn exists(&self, entry: &Entry) -> Option<usize> {
         self.iter()
-            .find(|r| r.entry.body == entry.body)
+            .find(|r| r.entry.body.matches(&entry.body))
             .map(|r| r.index)
     }
     /// List Unsorted Previews
@@ -102,18 +104,13 @@ impl dyn BackendGroup {
     }
     /// Add/Touch Entry Record in Database
     pub fn push(&mut self, entry: Entry) -> usize {
-        match self.exists(&entry) {
-            Some(index) => {
-                self.touch(index);
-                index
-            }
-            None => {
-                let index = self.index();
-                let record = Record::new(index, entry);
-                self.insert(index, record);
-                index
-            }
-        }
+        let index = match self.exists(&entry) {
+            Some(index) => index,
+            None => self.index(),
+        };
+        let record = Record::new(index, entry);
+        self.insert(index, record);
+        index
     }
     /// Find & Touch Record (if Found)
     pub fn select(&mut self, index: Option<usize>) -> Option<Record> {
@@ -134,15 +131,25 @@ impl dyn BackendGroup {
     }
     /// Delete Expired Records within Backend
     pub fn clean(&mut self, cfg: &CleanCfg) {
-        // delete expired records and collect non-expired
+        // categorize records into expired and unexpired
         let mut valid: Vec<(usize, SystemTime)> = vec![];
+        let mut invalid: Vec<(usize, SystemTime)> = vec![];
         for record in self.iter() {
             match cfg.is_expired(record.last_used) {
-                true => self.delete(&record.index),
+                true => invalid.push((record.index, record.last_used)),
                 false => valid.push((record.index, record.last_used)),
             }
         }
-        // delete oldest records until within size
+        // save invalid records until within minimum
+        invalid.sort_by_key(|(_, last_used)| last_used.to_owned());
+        while !invalid.is_empty() && valid.len() < cfg.min_entries {
+            valid.push(invalid.pop().expect("unexpected empty array"))
+        }
+        // delete remaining invalid records
+        for (index, _) in invalid {
+            self.delete(&index);
+        }
+        // delete oldest valid  records until within maximum
         if let Some(max_size) = cfg.max_entries {
             valid.sort_by_key(|(_, last_used)| last_used.to_owned());
             valid.reverse();

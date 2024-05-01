@@ -25,9 +25,11 @@ pub type BackendConfig = HashMap<String, GroupConfig>;
 
 /// Backend Group Configuration Settings
 #[derive(Debug, Clone, Deserialize)]
+#[serde(default)]
 pub struct GroupConfig {
     pub storage: Storage,
     pub expiration: Expiration,
+    pub min_entries: usize,
     pub max_entries: Option<usize>,
 }
 
@@ -36,6 +38,7 @@ impl Default for GroupConfig {
         Self {
             storage: Storage::Disk(disk_default()),
             expiration: Expiration::OnReboot,
+            min_entries: 0,
             max_entries: None,
         }
     }

@@ -33,6 +33,18 @@ impl From<ClipBoardListenContext> for ClipBody {
 }
 
 impl ClipBody {
+    /// Convert to Bytes but Trim Text
+    fn trim(&self) -> &[u8] {
+        match self {
+            Self::Text(text) => text.trim().as_bytes(),
+            Self::Data(data) => &data,
+        }
+    }
+    /// Alternate Compare that Ignores Whitespace for Text
+    #[inline]
+    pub fn matches(&self, other: &Self) -> bool {
+        self.trim() == other.trim()
+    }
     /// Check if Clipboard Content is Empty
     pub fn is_empty(&self) -> bool {
         match self {
