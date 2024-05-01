@@ -54,8 +54,8 @@ impl Shared {
         Self {
             ignore: None,
             backend: Box::new(Manager::new(cfg.backends)),
-            term_group: None,
-            live_group: None,
+            term_group: cfg.term_backend,
+            live_group: cfg.live_backend,
         }
     }
     #[inline]

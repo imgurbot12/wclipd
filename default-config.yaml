@@ -13,9 +13,14 @@ list:
 daemon:
   capture_live: true
   recopy_live: true
-  term_backend: 'default'
-  live_backend: 'default'
+  term_backend: 'term'
+  live_backend: 'live'
   backends:
+    live:
+      storage: 'disk'
+      expiration: 'reboot'
+      min_entries: 1
+      max_entries: 5
     default:
       storage: 'disk'
       expiration: 'reboot'
