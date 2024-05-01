@@ -68,30 +68,40 @@ pub struct Entry {
     pub body: ClipBody,
 }
 
+/// calculate text-mimes
+fn text_mimes(mime: Option<String>) -> Vec<String> {
+    let mut mimes = vec![
+        "text/plain".to_owned(),
+        "TEXT".to_owned(),
+        "UTF8_STRING".to_owned(),
+        "text/plain;charset=utf-8".to_owned(),
+    ];
+    if let Some(mime) = mime {
+        if !mimes.contains(&mime) {
+            mimes.insert(0, mime);
+        }
+    }
+    mimes
+}
+
 impl Entry {
     /// Generate new Text Clipboard Entry
     pub fn text(content: String, mime: Option<String>) -> Self {
-        let mut mimes = vec![
-            "text/plain".to_owned(),
-            "TEXT".to_owned(),
-            "UTF8_STRING".to_owned(),
-            "text/plain;charset=utf-8".to_owned(),
-        ];
-        if let Some(mime) = mime {
-            if !mimes.contains(&mime) {
-                mimes.insert(0, mime);
-            }
-        }
         Self {
-            mime: mimes,
+            mime: text_mimes(mime),
             body: ClipBody::Text(content),
         }
     }
     /// Generate new Data Clipboard Entry
     pub fn data(content: &[u8], mime: Option<String>) -> Self {
         let mime = mime.unwrap_or_else(|| guess_mime_data(content));
+        let mimes = if is_text(&mime) {
+            text_mimes(Some(mime))
+        } else {
+            vec![mime]
+        };
         Self {
-            mime: vec![mime],
+            mime: mimes,
             body: ClipBody::Data(content.to_vec()),
         }
     }

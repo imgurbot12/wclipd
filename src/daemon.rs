@@ -155,7 +155,8 @@ impl Daemon {
             } => {
                 let record = {
                     let mut shared = self.shared.write().expect("rwlock write failed");
-                    shared.group(group.clone()).select(Some(index))
+                    let group = group.clone().or(shared.term_group.clone());
+                    shared.group(group).select(Some(index))
                 };
                 match record {
                     Some(record) => {
@@ -172,11 +173,13 @@ impl Daemon {
             }
             Request::List { length, group } => {
                 let mut shared = self.shared.write().expect("rwlock read failed");
+                let group = group.or(shared.term_group.clone());
                 let previews = shared.group(group.clone()).preview(length);
                 Response::Previews { previews }
             }
             Request::Find { index, group } => {
                 let mut shared = self.shared.write().expect("rwlock read failed");
+                let group = group.or(shared.term_group.clone());
                 match shared.group(group).find(index) {
                     Some(record) => Response::Entry {
                         entry: record.entry,
@@ -187,6 +190,7 @@ impl Daemon {
             }
             Request::Wipe { wipe, group } => {
                 let mut shared = self.shared.write().expect("rwlock write failed");
+                let group = group.or(shared.term_group.clone());
                 let mut group = shared.group(group);
                 match wipe {
                     Wipe::All => {

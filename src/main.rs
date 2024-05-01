@@ -1,5 +1,5 @@
 use std::fs::read_to_string;
-use std::io::{stdin, stdout, Read, Write};
+use std::io::{self, stdin, stdout, Read, Write};
 use std::path::PathBuf;
 use std::time::{Duration, SystemTime};
 
@@ -39,6 +39,8 @@ pub enum CliError {
     ClientError(#[from] ClientError),
     #[error("Daemon Error")]
     DaemonError(#[from] DaemonError),
+    #[error("Daemon Start Error")]
+    DaemonStartError(#[from] daemonize::Error),
     #[error("Clipboard Error")]
     ClipboardError(#[from] WlClipboardListenerError),
     #[error("Conflict Error")]
@@ -64,7 +66,7 @@ struct CopyArgs {
     #[clap(short, long)]
     group: Option<String>,
     /// Override the inferred MIME type
-    #[arg(short, long)]
+    #[arg(short = 't', long = "type")]
     mime: Option<String>,
     /// Copy to Primary Selection
     #[arg(short, long, default_value_t = false)]
@@ -162,11 +164,14 @@ struct DeleteArgs {
 #[derive(Debug, Clone, Args)]
 struct DaemonArgs {
     /// Kill existing Daemon (if running)
-    #[clap(short, long, default_value_t = false)]
+    #[clap(short, long)]
     kill: bool,
     /// Toggle capturing of live clipboard events
     #[clap(short, long)]
     live: Option<bool>,
+    /// Fork and run in background
+    #[clap(short, long)]
+    background: bool,
 }
 
 /// Valid CLI Command Actions
@@ -445,10 +450,14 @@ impl Cli {
     }
 
     /// Delete Command Handler
-    fn delete(&self, args: DeleteArgs) -> Result<(), CliError> {
+    fn delete(&self, config: Config, args: DeleteArgs) -> Result<(), CliError> {
         let path = self.get_socket();
         let mut client = Client::new(path)?;
-        let name = args.group.clone().unwrap_or_else(|| "default".to_owned());
+        let name = args
+            .group
+            .clone()
+            .or(config.daemon.term_backend)
+            .unwrap_or_else(|| "default".to_owned());
         if args.clear {
             log::info!("clearing all records for group: {name:?}");
             client.wipe(Wipe::All, args.group)?;
@@ -473,6 +482,11 @@ impl Cli {
         // override daemon cli arguments
         config.daemon.kill = args.kill;
         config.daemon.capture_live = args.live.unwrap_or(config.daemon.capture_live);
+        // fork and run in background if enabled
+        if args.background {
+            let daemon = daemonize::Daemonize::new();
+            daemon.start()?;
+        }
         // run daemon
         let path = self.get_socket();
         let mut server = Daemon::new(path, config.daemon)?;
@@ -493,7 +507,7 @@ fn process_cli() -> Result<(), CliError> {
         Command::Check => cli.check(),
         Command::ListGroups(args) => cli.list_groups(config, args),
         Command::Show(args) => cli.show(config, args),
-        Command::Delete(args) => cli.delete(args),
+        Command::Delete(args) => cli.delete(config, args),
         Command::Daemon(args) => cli.daemon(config, args),
     }
 }
@@ -511,6 +525,11 @@ fn main() {
             CliError::Warning(warn) => eprintln!("Warning, {warn}"),
             CliError::EditError(err) => eprintln!("Failed to edit clipboard, {err}"),
             CliError::ConflictError(err) => eprintln!("Conflicting arguments, {err}"),
+            CliError::ClientError(_)
+                if io::Error::last_os_error().kind() == io::ErrorKind::ConnectionRefused =>
+            {
+                eprintln!("Could Not Connect to Daemon. Try Running `wclipd daemon`");
+            }
             err => eprintln!("Unexpected Failure! Error: {err:?}"),
         };
         std::process::exit(1);
