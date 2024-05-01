@@ -21,6 +21,11 @@ daemon:
       expiration: 'reboot'
       min_entries: 1
       max_entries: 5
+    wl-clip:
+      storage: 'disk'
+      expiration: 1200
+      min_entries: 1
+      max_entries: 5
     default:
       storage: 'disk'
       expiration: 'reboot'
