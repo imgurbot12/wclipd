@@ -528,7 +528,7 @@ fn main() {
             CliError::ClientError(_)
                 if io::Error::last_os_error().kind() == io::ErrorKind::ConnectionRefused =>
             {
-                eprintln!("Could Not Connect to Daemon. Try Running `wclipd daemon`");
+                eprintln!("Could Not Connect to Daemon. Try Running `wclipd daemon -b`");
             }
             err => eprintln!("Unexpected Failure! Error: {err:?}"),
         };
