@@ -1,7 +1,7 @@
 ---
 # show-list settings
 list:
-  default_group: 'default'
+  default_group: 'term'
   preview_length: 60
   table:
     style: 'fancy'
