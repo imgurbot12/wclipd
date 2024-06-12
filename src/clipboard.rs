@@ -73,6 +73,7 @@ fn text_mimes(mime: Option<String>) -> Vec<String> {
     let mut mimes = vec![
         "text/plain".to_owned(),
         "TEXT".to_owned(),
+        "STRING".to_owned(),
         "UTF8_STRING".to_owned(),
         "text/plain;charset=utf-8".to_owned(),
     ];
@@ -81,6 +82,7 @@ fn text_mimes(mime: Option<String>) -> Vec<String> {
             mimes.insert(0, mime);
         }
     }
+    mimes.sort();
     mimes
 }
 
@@ -156,8 +158,16 @@ impl Entry {
 
 impl From<ClipBoardListenMessage> for Entry {
     fn from(value: ClipBoardListenMessage) -> Self {
+        let mime = match value.mime_types.iter().any(|m| is_text(m)) {
+            true => text_mimes(None),
+            false => {
+                let mut mimes = value.mime_types;
+                mimes.sort();
+                mimes
+            }
+        };
         Self {
-            mime: value.mime_types,
+            mime,
             body: ClipBody::from(value.context),
         }
     }
