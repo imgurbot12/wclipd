@@ -128,8 +128,10 @@ impl Entry {
     #[inline]
     pub fn mime(&self) -> String {
         self.mime
-            .get(0)
-            .cloned()
+            .iter()
+            .find(|s| s.contains("/"))
+            .or_else(|| self.mime.get(0))
+            .map(|s| s.to_owned())
             .unwrap_or_else(|| "N/A".to_owned())
     }
     /// Generate Content Preview
