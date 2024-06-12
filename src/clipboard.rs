@@ -158,7 +158,7 @@ impl Entry {
 
 impl From<ClipBoardListenMessage> for Entry {
     fn from(value: ClipBoardListenMessage) -> Self {
-        let mime = match value.mime_types.iter().any(|m| is_text(m)) {
+        let mime = match value.mime_types.iter().all(|m| is_text(m)) {
             true => text_mimes(None),
             false => {
                 let mut mimes = value.mime_types;
