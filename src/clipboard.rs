@@ -71,18 +71,38 @@ pub struct Entry {
 /// calculate text-mimes
 fn text_mimes(mime: Option<String>) -> Vec<String> {
     let mut mimes = vec![
+        "text/plain;charset=utf-8".to_owned(),
         "text/plain".to_owned(),
-        "TEXT".to_owned(),
         "STRING".to_owned(),
         "UTF8_STRING".to_owned(),
-        "text/plain;charset=utf-8".to_owned(),
+        "TEXT".to_owned(),
     ];
     if let Some(mime) = mime {
         if !mimes.contains(&mime) {
             mimes.insert(0, mime);
         }
     }
-    mimes.sort();
+    mimes
+}
+
+// calculate image-mimes
+fn image_mimes(mime: Option<String>) -> Vec<String> {
+    let mut mimes = vec![
+        "text/plain".to_owned(),
+        "TEXT".to_owned(),
+        "STRING".to_owned(),
+        "UTF8_STRING".to_owned(),
+        "text/plain;charset=utf-8".to_owned(),
+        "SAVE_TARGETS".to_owned(),
+        "MULTIPLE".to_owned(),
+        "image/png".to_owned(),
+        "text/html".to_owned(),
+    ];
+    if let Some(mime) = mime {
+        if !mimes.contains(&mime) {
+            mimes.insert(0, mime);
+        }
+    }
     mimes
 }
 
@@ -99,6 +119,8 @@ impl Entry {
         let mime = mime.unwrap_or_else(|| guess_mime_data(content));
         let mimes = if is_text(&mime) {
             text_mimes(Some(mime))
+        } else if is_image(&mime) {
+            image_mimes(Some(mime))
         } else {
             vec![mime]
         };
@@ -121,7 +143,7 @@ impl Entry {
     pub fn is_text(&self) -> bool {
         match self.body {
             ClipBody::Text(_) => true,
-            _ => self.mime.iter().any(|m| is_text(m)),
+            _ => self.mime.iter().all(|m| is_text(m)),
         }
     }
     /// Get First MimeType in Available MimeTypes
@@ -160,13 +182,12 @@ impl Entry {
 
 impl From<ClipBoardListenMessage> for Entry {
     fn from(value: ClipBoardListenMessage) -> Self {
-        let mime = match value.mime_types.iter().all(|m| is_text(m)) {
-            true => text_mimes(None),
-            false => {
-                let mut mimes = value.mime_types;
-                mimes.sort();
-                mimes
-            }
+        let mime = if value.mime_types.iter().all(|m| is_text(m)) {
+            text_mimes(None)
+        } else if value.mime_types.iter().any(|m| is_image(m)) {
+            image_mimes(None)
+        } else {
+            value.mime_types
         };
         Self {
             mime,

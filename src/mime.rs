@@ -11,6 +11,11 @@ pub fn is_text(mime_type: &str) -> bool {
     }
 }
 
+/// Check if given MIME type is valid image
+pub fn is_image(mime_type: &str) -> bool {
+    mime_type.starts_with("image/")
+}
+
 /// Guess MimeType from FilePath
 pub fn guess_mime_path(path: &PathBuf) -> String {
     let mime_db = xdg_mime::SharedMimeInfo::new();

@@ -7,9 +7,8 @@ use std::sync::{Arc, Barrier, RwLock};
 use std::thread;
 
 use thiserror::Error;
+use wayland_clipboard_listener::WlClipboardCopyStream;
 use wayland_clipboard_listener::{WlClipboardListenerError, WlClipboardPasteStream, WlListenType};
-
-use wl_clipboard_rs::copy::{ClipboardType, MimeType, Options, Source};
 
 use crate::backend::{Backend, BackendGroup, Manager, Record};
 use crate::client::Client;
@@ -18,22 +17,12 @@ use crate::config::DaemonConfig;
 use crate::message::*;
 
 fn copy(entry: Entry, primary: bool) -> Result<(), DaemonError> {
-    let clipboard = if primary {
-        ClipboardType::Primary
-    } else {
-        ClipboardType::Regular
-    };
+    let mut stream = WlClipboardCopyStream::init()?;
     thread::spawn(move || {
-        let content = entry.body.as_bytes();
-        let mime = if entry.is_text() {
-            MimeType::Text
-        } else {
-            MimeType::Specific(entry.mime())
-        };
-        let mut options = Options::new();
-        options.clipboard(clipboard);
-        options
-            .copy(Source::Bytes(content.into()), mime)
+        let mimes = entry.mime.iter().map(|s| s.as_str()).collect();
+        let context = entry.body.as_bytes().to_vec();
+        stream
+            .copy_to_clipboard(context, mimes, primary)
             .expect("clipboard copy failed");
     });
     Ok(())
@@ -302,8 +291,8 @@ impl Daemon {
             let index = shared.group(group).push(entry.clone());
             log::info!("copied live entry (group={name} index={index}) {mime:?}");
             // recopy clipboard if enabled
+            shared.ignore = Some(entry.clone());
             if self.recopy {
-                shared.ignore = Some(entry.clone());
                 if let Err(err) = copy(entry, false) {
                     log::error!("failed to re-copy clipboard: {err:?}");
                 };
